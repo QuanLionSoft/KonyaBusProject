@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --sidebar-width: 260px;
+  --primary-color: #2c3e50;
+  --secondary-color: #34495e;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f8f9fa; /* Hafif gri arka plan */
+  overflow-x: hidden;
+}
+
+/* Sidebar Tasarımı */
+.sidebar {
+  width: var(--sidebar-width);
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: linear-gradient(180deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+  color: white;
+  z-index: 1000;
+  transition: all 0.3s;
+  box-shadow: 4px 0 10px rgba(0,0,0,0.1);
+}
+
+.main-content {
+  margin-left: var(--sidebar-width);
+  padding: 2rem;
+  min-height: 100vh;
+  transition: all 0.3s;
+}
+
+.nav-link-custom {
+  color: rgba(255,255,255,0.7);
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.nav-link-custom:hover, .nav-link-custom.active {
+  background-color: rgba(255,255,255,0.1);
+  color: white;
+  font-weight: 500;
+}
+
+/* Kart Tasarımları */
+.card-pro {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  background: white;
+  transition: transform 0.2s;
+}
+
+.card-pro:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+}
+
+/* Grafik Alanı */
+.chart-container {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
