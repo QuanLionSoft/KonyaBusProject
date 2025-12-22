@@ -3,16 +3,16 @@ import numpy as np
 import os
 import joblib
 import glob
+import xgboost as xgb
 from prophet import Prophet
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import LSTM, Dense, Input
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# Dizin Ayarları
+# --- DİZİN AYARLARI ---
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
-DATA_PATH_VARIS = os.path.join(PROJECT_ROOT, 'veri_seti', 'otobusdurakvaris01.csv')
 VERI_SETI_KLASORU = os.path.join(PROJECT_ROOT, 'veri_seti')
 MODEL_DIR = os.path.join(CURRENT_DIR, 'saved_models')
 
@@ -20,121 +20,225 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
-# --- PROPHET MODELİ (AGGREGATION DESTEKLİ) ---
-class DemandPredictor:
+# =======================================================
+# 1. HİBRİT TALEP TAHMİN MODELİ (Yolcu Sayısı: Prophet + XGB + LSTM)
+# =======================================================
+class HybridDemandPredictor:
     def __init__(self):
-        self.models = {}
+        self.scaler = MinMaxScaler(feature_range=(0, 1))
+        self.look_back = 24  # LSTM geçmiş 24 saate bakar
 
-    def train_model(self, hat_no):
+    def _get_data(self, hat_no):
+        """Elkart verilerini okur ve saatlik yolcu sayısını çıkarır."""
+        dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
+        if not dosyalar: return None
+
+        df_list = []
+        for dosya in dosyalar:
+            try:
+                with open(dosya, 'r', encoding='utf-8') as f:
+                    first_line = f.readline()
+                    ayirici = ';' if ';' in first_line else ','
+
+                temp_df = pd.read_csv(dosya, sep=ayirici, encoding='utf-8', on_bad_lines='skip')
+                temp_df.columns = [c.strip().upper().replace('İ', 'I').replace(' ', '_') for c in temp_df.columns]
+
+                binis_col = next((c for c in temp_df.columns if 'BINIS' in c or 'SAYI' in c), None)
+                hat_col = next((c for c in temp_df.columns if 'HAT' in c and 'NO' in c and 'ALT' not in c), None)
+
+                if binis_col and hat_col and 'TARIH' in temp_df.columns and 'SAAT' in temp_df.columns:
+                    temp_df = temp_df[temp_df[hat_col] == int(hat_no)].copy()
+                    if not temp_df.empty:
+                        temp_df['ds_str'] = temp_df['TARIH'].astype(str) + ' ' + temp_df['SAAT'].astype(str) + ':00'
+                        temp_df['ds'] = pd.to_datetime(temp_df['ds_str'], dayfirst=True, errors='coerce')
+                        temp_df['y'] = temp_df[binis_col]
+                        df_list.append(temp_df[['ds', 'y']])
+            except Exception:
+                continue
+
+        if not df_list: return None
+        df = pd.concat(df_list, ignore_index=True)
+        df = df.dropna(subset=['ds'])
+        df = df.groupby('ds')['y'].sum().reset_index()
+        df = df.set_index('ds').resample('h').sum().reset_index()
+        df['y'] = df['y'].fillna(0)
+        return df.sort_values('ds')
+
+    def train_hybrid(self, hat_no):
+        """Prophet, XGBoost ve LSTM modellerini sırayla eğitir."""
         try:
-            # Tüm elkart dosyalarını bul ve birleştir
-            dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
-            if not dosyalar: return None
+            df = self._get_data(hat_no)
+            if df is None or len(df) < 50: return "Yetersiz veri."
 
-            df_list = []
-            for dosya in dosyalar:
-                try:
-                    with open(dosya, 'r', encoding='utf-8') as f:
-                        ayirici = ';' if ';' in f.readline() else ','
-                    temp_df = pd.read_csv(dosya, sep=ayirici, encoding='utf-8')
-                    temp_df.columns = [c.strip().upper().replace('İ', 'I').replace(' ', '_') for c in temp_df.columns]
+            # 1. Prophet Eğitimi
+            prophet = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=True)
+            prophet.add_country_holidays(country_name='TR')
+            prophet.fit(df)
+            joblib.dump(prophet, os.path.join(MODEL_DIR, f'prophet_{hat_no}.pkl'))
 
-                    for col in temp_df.columns:
-                        if 'BINIS' in col or 'BİNİŞ' in col: temp_df.rename(columns={col: 'y'}, inplace=True)
-                    if 'TARIH' in temp_df.columns: temp_df.rename(columns={'TARIH': 'ds_date'}, inplace=True)
-                    if 'SAAT' in temp_df.columns: temp_df.rename(columns={'SAAT': 'ds_hour'}, inplace=True)
+            # 2. XGBoost (Residual) Eğitimi
+            forecast = prophet.predict(df)
+            df['yhat_prophet'] = forecast['yhat'].values
+            df['residual'] = df['y'] - df['yhat_prophet']
+            df['hour'] = df['ds'].dt.hour
+            df['day'] = df['ds'].dt.dayofweek
+            df['month'] = df['ds'].dt.month
 
-                    if 'HAT_NO' in temp_df.columns and 'y' in temp_df.columns:
-                        df_list.append(temp_df[['HAT_NO', 'ds_date', 'ds_hour', 'y']])
-                except:
-                    pass
+            xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100)
+            xgb_model.fit(df[['hour', 'day', 'month']], df['residual'])
+            xgb_model.save_model(os.path.join(MODEL_DIR, f'xgb_{hat_no}.json'))
 
-            if not df_list: return "Veri yok."
-            df = pd.concat(df_list, ignore_index=True)
+            # 3. LSTM Eğitimi
+            data = df['y'].values.reshape(-1, 1)
+            scaled_data = self.scaler.fit_transform(data)
+            joblib.dump(self.scaler, os.path.join(MODEL_DIR, f'scaler_{hat_no}.pkl'))
 
-            df = df[df['HAT_NO'] == hat_no].copy()
-            if df.empty: return f"Hat {hat_no} verisi yok."
+            X_lstm, y_lstm = [], []
+            for i in range(self.look_back, len(scaled_data)):
+                X_lstm.append(scaled_data[i - self.look_back:i, 0])
+                y_lstm.append(scaled_data[i, 0])
 
-            df['ds_str'] = df['ds_date'].astype(str) + ' ' + df['ds_hour'].astype(str) + ':00'
-            df['ds'] = pd.to_datetime(df['ds_str'], dayfirst=True, errors='coerce')
-            df = df.dropna(subset=['ds']).groupby('ds')['y'].sum().reset_index().sort_values('ds')
+            X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
+            X_lstm = np.reshape(X_lstm, (X_lstm.shape[0], X_lstm.shape[1], 1))
 
-            model = Prophet(yearly_seasonality=True, daily_seasonality=True)
-            model.add_country_holidays(country_name='TR')
-            model.fit(df)
+            lstm_model = Sequential()
+            lstm_model.add(Input(shape=(self.look_back, 1)))
+            lstm_model.add(LSTM(units=50, return_sequences=True))
+            lstm_model.add(LSTM(units=50))
+            lstm_model.add(Dense(1))
+            lstm_model.compile(loss='mean_squared_error', optimizer='adam')
+            lstm_model.fit(X_lstm, y_lstm, epochs=5, batch_size=32, verbose=0)
+            lstm_model.save(os.path.join(MODEL_DIR, f'lstm_{hat_no}.h5'))
 
-            joblib.dump(model, os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl'))
-            self.models[hat_no] = model
-            return f"Hat {hat_no} eğitildi."
+            return f"Hat {hat_no} için Hibrit Model Başarıyla Eğitildi."
         except Exception as e:
-            print(f"Hata: {e}")
-            return None
+            return f"Eğitim Hatası: {str(e)}"
 
-    def predict(self, hat_no, hours=24, agg='hour'):
-        model_path = os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl')
-        if hat_no not in self.models:
-            if os.path.exists(model_path):
-                self.models[hat_no] = joblib.load(model_path)
-            else:
+    def predict_hybrid(self, hat_no, hours=24):
+        """Gelecek n saati hibrit yöntemle tahmin eder."""
+        try:
+            p_path = os.path.join(MODEL_DIR, f'prophet_{hat_no}.pkl')
+            x_path = os.path.join(MODEL_DIR, f'xgb_{hat_no}.json')
+            l_path = os.path.join(MODEL_DIR, f'lstm_{hat_no}.h5')
+
+            if not (os.path.exists(p_path) and os.path.exists(x_path) and os.path.exists(l_path)):
                 return None
 
-        model = self.models[hat_no]
+            prophet_model = joblib.load(p_path)
+            xgb_model = xgb.XGBRegressor()
+            xgb_model.load_model(x_path)
+            lstm_model = load_model(l_path)
+            scaler = joblib.load(os.path.join(MODEL_DIR, f'scaler_{hat_no}.pkl'))
 
-        # 1. Her zaman saatlik tahmin üret (En hassas veri)
-        now = datetime.now().replace(minute=0, second=0, microsecond=0)
-        future_dates = pd.date_range(start=now, periods=hours, freq='h')
-        future = pd.DataFrame({'ds': future_dates})
+            # Gelecek zaman dilimleri
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            future_dates = [now + timedelta(hours=x) for x in range(hours)]
+            future_df = pd.DataFrame({'ds': future_dates})
 
-        forecast = model.predict(future)
-        result = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+            # 1. Prophet Tahmini
+            forecast = prophet_model.predict(future_df)
+            p_preds = forecast['yhat'].values
 
-        # 2. İstenen formata göre topla (Aggregation)
-        if agg == 'day':
-            # Günlük Toplam
-            result = result.resample('D', on='ds').sum().reset_index()
-        elif agg == 'month':
-            # Aylık Toplam (Yıllık görünüm için) - 'MS' Month Start kullanıyoruz
-            result = result.resample('MS', on='ds').sum().reset_index()
+            # 2. XGBoost Tahmini
+            future_df['hour'] = future_df['ds'].dt.hour
+            future_df['dayofweek'] = future_df['ds'].dt.dayofweek
+            future_df['month'] = future_df['ds'].dt.month
+            x_preds = xgb_model.predict(
+                future_df[['hour', 'dayofweek', 'month']])  # Sütun isimleri eğitimle aynı olmalı
 
-        # Negatif değerleri sıfırla
-        result['yhat'] = result['yhat'].clip(lower=0)
-        result['yhat_lower'] = result['yhat_lower'].clip(lower=0)
-        result['yhat_upper'] = result['yhat_upper'].clip(lower=0)
+            # 3. LSTM Tahmini (Simülasyon: Rolling Forecast)
+            current_batch = np.zeros((1, self.look_back, 1))
+            l_preds = []
+            for i in range(hours):
+                pred = lstm_model.predict(current_batch, verbose=0)[0, 0]
+                l_preds.append(pred)
+                current_batch = np.append(current_batch[:, 1:, :], [[[pred]]], axis=1)
 
-        return result.to_dict('records')
+            l_preds = scaler.inverse_transform(np.array(l_preds).reshape(-1, 1)).flatten()
+
+            # Ensemble (Birleştirme)
+            final_preds = []
+            for i in range(hours):
+                ensemble_val = ((p_preds[i] + x_preds[i]) * 0.7) + (l_preds[i] * 0.3)
+                final_preds.append({
+                    'ds': future_dates[i],
+                    'yhat': max(0, round(ensemble_val)),
+                    'detay': {
+                        'prophet': round(p_preds[i], 1),
+                        'lstm': round(l_preds[i], 1)
+                    }
+                })
+            return final_preds
+        except Exception as e:
+            print(f"Tahmin hatası: {e}")
+            return None
 
 
-# --- LSTM MODELİ ---
-class TravelTimeLSTM:
-    # (LSTM kodları aynı kalacak, önceki Turn'deki ile aynı)
+# =======================================================
+# 2. SEYAHAT SÜRESİ TAHMİN MODELİ (OtobusDurakVaris Verileri)
+# =======================================================
+class TravelTimePredictor:
     def __init__(self):
-        self.model = None
-        self.scaler_y = MinMaxScaler(feature_range=(0, 1))
-        self.le_hat = LabelEncoder()
-        self.le_durak = LabelEncoder()
-        self.model_path = os.path.join(MODEL_DIR, 'lstm_travel_time.h5')
-        self.encoders_path = os.path.join(MODEL_DIR, 'encoders.pkl')
-        self.load_artifacts()
+        pass
 
-    # ... (LSTM metodlarının geri kalanı aynı) ...
-    # (Kodun çok uzamaması için önceki cevaptaki LSTM kısmını buraya yapıştırabilirsiniz)
-    def train_model(self):
-        pass  # Önceki koddaki gibi doldurun
+    def _get_travel_data(self, hat_no):
+        """otobusdurakvaris dosyalarından süre hesaplar."""
+        dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "otobusdurakvaris*.csv"))
+        if not dosyalar: return None
 
-    def load_artifacts(self):
-        if os.path.exists(self.model_path) and os.path.exists(self.encoders_path):
+        df_list = []
+        for dosya in dosyalar:
             try:
-                self.model = load_model(self.model_path)
-                artifacts = joblib.load(self.encoders_path)
-                self.le_hat = artifacts['le_hat']
-                self.le_durak = artifacts['le_durak']
-                self.scaler_y = artifacts['scaler_y']
-            except:
-                pass
+                # Chunksize ile büyük dosyaları parça parça oku
+                for chunk in pd.read_csv(dosya, sep=';', chunksize=50000, on_bad_lines='skip', encoding='utf-8'):
+                    chunk.columns = [c.strip().lower() for c in chunk.columns]
 
-    def predict_segment(self, hat_no, durak_a, durak_b, saat, gun):
-        return 60  # Basitleştirildi, önceki kodu kullanın
+                    if 'ana_hat_no' in chunk.columns and 'cikis_zaman' in chunk.columns and 'varis_zaman' in chunk.columns:
+                        chunk = chunk[chunk['ana_hat_no'] == int(hat_no)].copy()
+                        if not chunk.empty:
+                            chunk['cikis'] = pd.to_datetime(chunk['cikis_zaman'], errors='coerce')
+                            chunk['varis'] = pd.to_datetime(chunk['varis_zaman'], errors='coerce')
+                            chunk.dropna(subset=['cikis', 'varis'], inplace=True)
+
+                            chunk['sure_sn'] = (chunk['varis'] - chunk['cikis']).dt.total_seconds()
+                            chunk = chunk[(chunk['sure_sn'] > 60) & (
+                                        chunk['sure_sn'] < 7200)]  # 1dk - 120dk arası mantıklı veriler
+
+                            chunk['saat'] = chunk['cikis'].dt.hour
+                            chunk['gun'] = chunk['cikis'].dt.dayofweek
+
+                            df_list.append(chunk[['saat', 'gun', 'sure_sn']])
+            except Exception as e:
+                continue
+
+        if not df_list: return None
+        return pd.concat(df_list, ignore_index=True)
+
+    def train_travel_model(self, hat_no):
+        df = self._get_travel_data(hat_no)
+        if df is None or len(df) < 50: return "Yetersiz seyahat verisi."
+
+        # XGBoost ile Süre Tahmini
+        X = df[['saat', 'gun']]
+        y = df['sure_sn']
+
+        model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100)
+        model.fit(X, y)
+        model.save_model(os.path.join(MODEL_DIR, f'travel_xgb_{hat_no}.json'))
+        return "Seyahat Modeli Eğitildi."
+
+    def predict_duration(self, hat_no, hour, day_of_week):
+        model_path = os.path.join(MODEL_DIR, f'travel_xgb_{hat_no}.json')
+        if not os.path.exists(model_path): return None
+
+        model = xgb.XGBRegressor()
+        model.load_model(model_path)
+
+        pred_df = pd.DataFrame({'saat': [hour], 'gun': [day_of_week]})
+        sure_sn = model.predict(pred_df)[0]
+        return round(float(sure_sn / 60), 1)  # Dakika cinsinden
 
 
-demand_predictor = DemandPredictor()
-lstm_predictor = TravelTimeLSTM()
+# Global Nesneler
+hybrid_predictor = HybridDemandPredictor()
+travel_predictor = TravelTimePredictor()
