@@ -1,206 +1,165 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import 'bootstrap/dist/css/bootstrap.min.css';
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { Bus, Users, TrendingUp, Calendar } from 'lucide-react';
 
 const Dashboard = () => {
-    // --- STATE ---
-    const [hatlar, setHatlar] = useState([]);
-    const [seciliHat, setSeciliHat] = useState("");
-    const [tahminVerisi, setTahminVerisi] = useState(null);
-    const [donem, setDonem] = useState('daily'); // daily, weekly, monthly, yearly
-    const [loading, setLoading] = useState(false);
+  const [data, setData] = useState([]);
+  const [selectedLine, setSelectedLine] = useState('56-A');
+  const [loading, setLoading] = useState(true);
 
-    // İstatistikler (Mock veya Hesaplanan)
-    const [stats, setStats] = useState({ toplamSefer: 0, aktifArac: 0, yolcuTahmini: 0 });
+  // Örnek Veri Seti (Backend bağlanana kadar placeholder)
+  // Normalde burası Django API'den (ör: http://127.0.0.1:8000/api/predict/) gelecek.
+  useEffect(() => {
+    // API çağrısı simülasyonu
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // const response = await fetch(`http://localhost:8000/api/forecast/?line=${selectedLine}`);
+        // const result = await response.json();
 
-    useEffect(() => {
-        axios.get(`${API_BASE_URL}/hatlar/`).then(res => setHatlar(res.data || []));
-    }, []);
-
-    const veriGetir = (hatId, periyot) => {
-        if (!hatId) return;
-        setLoading(true);
-        setTahminVerisi(null);
-
-        axios.get(`${API_BASE_URL}/predict-demand/${hatId}/`, { params: { period: periyot } })
-            .then(res => {
-                if (res.data && res.data.predictions) {
-                    setTahminVerisi(res.data.predictions);
-                    // Basit istatistik hesapla
-                    const vals = Object.values(res.data.predictions);
-                    const toplam = vals.reduce((a, b) => a + b, 0);
-                    setStats(prev => ({ ...prev, yolcuTahmini: Math.round(toplam) }));
-                }
-            })
-            .catch(err => console.error(err))
-            .finally(() => setLoading(false));
+        // Şimdilik sahte veri üretiyoruz:
+        const mockData = [
+          { date: '2025-12-01', gercekles: 1200, tahmin: 1150 },
+          { date: '2025-12-02', gercekles: 1350, tahmin: 1380 },
+          { date: '2025-12-03', gercekles: 1100, tahmin: 1120 },
+          { date: '2025-12-04', gercekles: 1400, tahmin: 1390 },
+          { date: '2025-12-05', gercekles: 1600, tahmin: 1550 },
+          { date: '2025-12-06', gercekles: 900,  tahmin: 950 }, // Hafta sonu düşüşü
+          { date: '2025-12-07', gercekles: 850,  tahmin: 870 },
+        ];
+        setData(mockData);
+      } catch (error) {
+        console.error("Veri çekme hatası:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const handleHatChange = (e) => {
-        const id = e.target.value;
-        setSeciliHat(id);
-        const hat = hatlar.find(h => h.id.toString() === id);
-        if (hat) {
-            veriGetir(hat.ana_hat_no, donem);
-            // Hat değişince aktif araç sayısı simülasyonu (Fake data yerine API çağrılabilir)
-            setStats(prev => ({ ...prev, aktifArac: Math.floor(Math.random() * 10) + 1 }));
-        }
-    };
+    fetchData();
+  }, [selectedLine]);
 
-    const handleDonemChange = (yeniDonem) => {
-        setDonem(yeniDonem);
-        const hat = hatlar.find(h => h.id.toString() === seciliHat);
-        if (hat) veriGetir(hat.ana_hat_no, yeniDonem);
-    };
+  // Özet İstatistik Hesaplama (Basit KPI'lar)
+  const totalPassenger = data.reduce((acc, curr) => acc + curr.gercekles, 0);
+  const totalForecast = data.reduce((acc, curr) => acc + curr.tahmin, 0);
+  const accuracy = data.length > 0 ? (100 - (Math.abs(totalPassenger - totalForecast) / totalPassenger * 100)).toFixed(2) : 0;
 
-    return (
-        <div className="d-flex bg-light min-vh-100 font-sans">
-            {/* SIDEBAR (SOL MENÜ) */}
-            <div className="bg-dark text-white p-3 d-flex flex-column" style={{width: '250px', minHeight: '100vh'}}>
-                <h4 className="fw-bold mb-4 text-center text-primary">🚍 KONYA ULAŞIM</h4>
-                <div className="nav flex-column gap-2">
-                    <button className="btn btn-primary text-start fw-bold">📊 Dashboard</button>
-                    <button className="btn btn-outline-secondary text-start border-0 text-white disabled">🗺️ Canlı Harita</button>
-                    <button className="btn btn-outline-secondary text-start border-0 text-white disabled">🚌 Hat Yönetimi</button>
-                    <div className="mt-auto text-muted small text-center pt-4 border-top border-secondary">
-                        v2.0.0 PRO Sürüm
-                    </div>
-                </div>
-            </div>
-
-            {/* ANA İÇERİK */}
-            <div className="flex-grow-1 p-4">
-                {/* ÜST İSTATİSTİK KARTLARI */}
-                <div className="row g-4 mb-4">
-                    <div className="col-md-4">
-                        <div className="card border-0 shadow-sm rounded-4 h-100 bg-white">
-                            <div className="card-body d-flex align-items-center justify-content-between">
-                                <div>
-                                    <h6 className="text-muted fw-bold mb-1">TOPLAM HAT</h6>
-                                    <h2 className="mb-0 fw-bold text-dark">{hatlar.length}</h2>
-                                </div>
-                                <div className="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
-                                    <i className="bi bi-diagram-3 fs-3"></i> 🚏
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="col-md-4">
-                        <div className="card border-0 shadow-sm rounded-4 h-100 bg-white">
-                            <div className="card-body d-flex align-items-center justify-content-between">
-                                <div>
-                                    <h6 className="text-muted fw-bold mb-1">TAHMİNİ AKTİF ARAÇ</h6>
-                                    <h2 className="mb-0 fw-bold text-success">{stats.aktifArac}</h2>
-                                </div>
-                                <div className="bg-success bg-opacity-10 p-3 rounded-circle text-success">
-                                    <i className="bi bi-bus-front fs-3"></i> 🚌
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="col-md-4">
-                        <div className="card border-0 shadow-sm rounded-4 h-100 bg-white">
-                            <div className="card-body d-flex align-items-center justify-content-between">
-                                <div>
-                                    <h6 className="text-muted fw-bold mb-1">ÖNGÖRÜLEN YOLCU</h6>
-                                    <h2 className="mb-0 fw-bold text-warning">{stats.yolcuTahmini > 0 ? stats.yolcuTahmini : '-'}</h2>
-                                </div>
-                                <div className="bg-warning bg-opacity-10 p-3 rounded-circle text-warning">
-                                    <i className="bi bi-people fs-3"></i> 👥
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* ANA GRAFİK ALANI */}
-                <div className="card border-0 shadow-lg rounded-4 overflow-hidden">
-                    <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center border-bottom">
-                        <div>
-                            <h5 className="mb-0 fw-bold text-dark">🔮 Prophet Yapay Zeka Analizi</h5>
-                            <small className="text-muted">Gelecek yolcu talebi tahmini ve trend analizi</small>
-                        </div>
-
-                        {/* FİLTRE BUTONLARI */}
-                        <div className="d-flex gap-2">
-                             <select className="form-select fw-bold border-secondary bg-light" onChange={handleHatChange} value={seciliHat} style={{width:'200px'}}>
-                                <option value="">Hat Seçiniz...</option>
-                                {hatlar.map(h => <option key={h.id} value={h.id}>{h.ana_hat_no} - {h.ana_hat_adi}</option>)}
-                            </select>
-                            <div className="btn-group shadow-sm">
-                                {['daily', 'weekly', 'monthly', 'yearly'].map(p => (
-                                    <button
-                                        key={p}
-                                        className={`btn fw-bold ${donem === p ? 'btn-dark' : 'btn-outline-secondary'}`}
-                                        onClick={() => handleDonemChange(p)}
-                                    >
-                                        {p === 'daily' ? 'Günlük' : p === 'weekly' ? 'Haftalık' : p === 'monthly' ? 'Aylık' : 'Yıllık'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="card-body p-4 bg-light">
-                        {!seciliHat && (
-                            <div className="d-flex flex-column align-items-center justify-content-center text-muted py-5">
-                                <span style={{fontSize: '3rem'}}>👈</span>
-                                <h5 className="mt-3">Lütfen analiz etmek için yukarıdan bir hat seçiniz.</h5>
-                            </div>
-                        )}
-
-                        {loading && (
-                            <div className="d-flex flex-column align-items-center justify-content-center py-5">
-                                <div className="spinner-border text-primary" role="status"></div>
-                                <p className="mt-3 fw-bold text-primary">Yapay Zeka Modeli Çalışıyor...</p>
-                            </div>
-                        )}
-
-                        {!loading && tahminVerisi && (
-                            <div style={{height: '350px', position: 'relative'}}>
-                                {/* PROPHET GRAFİĞİ SİMÜLASYONU (CSS İLE) */}
-                                <div className="h-100 w-100 d-flex align-items-end justify-content-between px-2 gap-1">
-                                    {Object.entries(tahminVerisi).map(([tarih, deger], idx) => {
-                                        const maxVal = Math.max(...Object.values(tahminVerisi));
-                                        const yukseklik = (deger / maxVal) * 100;
-
-                                        // Etiketleme
-                                        let etiket = tarih;
-                                        const d = new Date(tarih);
-                                        if(donem === 'daily') etiket = `${d.getHours()}:00`;
-                                        else if(donem === 'weekly') etiket = d.toLocaleDateString('tr-TR', {weekday:'short'});
-                                        else if(donem === 'monthly') etiket = d.getDate();
-                                        else etiket = d.toLocaleDateString('tr-TR', {month:'short'});
-
-                                        return (
-                                            <div key={idx} className="flex-fill d-flex flex-column justify-content-end align-items-center group">
-                                                {/* Tooltip Effect */}
-                                                <div
-                                                    className="bg-primary rounded-top opacity-75 shadow-sm"
-                                                    style={{
-                                                        height: `${yukseklik}%`,
-                                                        width: '70%',
-                                                        transition: 'all 0.5s ease',
-                                                        minHeight: '5px'
-                                                    }}
-                                                    title={`${tarih}: ${Math.round(deger)} Yolcu`}
-                                                ></div>
-                                                <small className="text-muted mt-2 fw-bold" style={{fontSize: '10px', transform: 'rotate(-45deg)', whiteSpace:'nowrap'}}>
-                                                    {etiket}
-                                                </small>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
+  return (
+    <div className="p-6 bg-gray-50 min-h-screen">
+      {/* --- Üst Başlık ve Filtreler --- */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Talep Tahmin Paneli</h1>
+          <p className="text-gray-500 text-sm">Konya Otobüs Hatları Yolcu Tahminleme Sistemi</p>
         </div>
-    );
+
+        <div className="mt-4 md:mt-0 flex items-center gap-4">
+          <label className="text-sm font-medium text-gray-700">Hat Seçimi:</label>
+          <select
+            value={selectedLine}
+            onChange={(e) => setSelectedLine(e.target.value)}
+            className="p-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="56-A">56-A (Köprübaşı)</option>
+            <option value="47-A">47-A (Meram)</option>
+            <option value="64-B">64-B (Kampüs)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* --- KPI Kartları --- */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <StatCard
+          title="Toplam Gerçekleşen Yolcu"
+          value={totalPassenger.toLocaleString()}
+          icon={<Users size={24} className="text-blue-600" />}
+          color="bg-blue-50"
+        />
+        <StatCard
+          title="Toplam Tahmin Edilen"
+          value={totalForecast.toLocaleString()}
+          icon={<TrendingUp size={24} className="text-green-600" />}
+          color="bg-green-50"
+        />
+        <StatCard
+          title="Model Doğruluğu"
+          value={`%${accuracy}`}
+          subText="Son 7 gün baz alındı"
+          icon={<Bus size={24} className="text-purple-600" />}
+          color="bg-purple-50"
+        />
+      </div>
+
+      {/* --- Ana Grafik --- */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <Calendar size={20} />
+          Tahmin vs. Gerçekleşen (Zaman Serisi)
+        </h2>
+
+        <div className="h-80 w-full">
+          {loading ? (
+            <div className="h-full flex items-center justify-center text-gray-400">Yükleniyor...</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorGercek" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorTahmin" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" stroke="#9ca3af" />
+                <YAxis stroke="#9ca3af" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                />
+                <Legend wrapperStyle={{ paddingTop: '20px' }}/>
+
+                <Area
+                  type="monotone"
+                  dataKey="gercekles"
+                  name="Gerçekleşen Yolcu"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorGercek)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="tahmin"
+                  name="Model Tahmini"
+                  stroke="#10b981"
+                  strokeDasharray="5 5" // Tahmin olduğu belli olsun diye kesik çizgi
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorTahmin)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
+
+// Yardımcı Alt Bileşen (Kart Yapısı)
+const StatCard = ({ title, value, icon, color, subText }) => (
+  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md transition-shadow">
+    <div className={`p-3 rounded-lg ${color}`}>
+      {icon}
+    </div>
+    <div>
+      <p className="text-gray-500 text-sm font-medium">{title}</p>
+      <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+      {subText && <p className="text-xs text-gray-400 mt-1">{subText}</p>}
+    </div>
+  </div>
+);
 
 export default Dashboard;
