@@ -1,28 +1,26 @@
 from rest_framework import serializers
-from .models import Hat, Durak, HatDurak, TalepVerisi, DurakVaris, HatGuzergah, HatTarife, EkSefer, Otobus
+from .models import Hat, Durak, HatDurak, TalepVerisi, EkSefer, Otobus
 
 
-# 1. Temel Serializerlar
 class HatSerializer(serializers.ModelSerializer):
     class Meta:
         model = Hat
-        fields = '__all__'
+        fields = ['id', 'ana_hat_no', 'ana_hat_adi', 'alt_hat_no', 'alt_hat_adi']
 
 
 class DurakSerializer(serializers.ModelSerializer):
     class Meta:
         model = Durak
-        fields = '__all__'
+        fields = ['id', 'durak_no', 'durak_adi', 'enlem', 'boylam']
 
 
-# 2. İlişkili (Nested) Serializerlar
 class HatDurakSerializer(serializers.ModelSerializer):
-    # ÖNEMLİ: Durak bilgisini ID olarak değil, tüm detaylarıyla (Enlem/Boylam) getir
-    durak = DurakSerializer(read_only=True)
+    durak = DurakSerializer()
 
     class Meta:
         model = HatDurak
-        fields = '__all__'
+        # 'istikamet' alanını buraya ekledik ki frontend alabilsin
+        fields = ['id', 'sira', 'durak', 'istikamet']
 
 
 class TalepVerisiSerializer(serializers.ModelSerializer):
