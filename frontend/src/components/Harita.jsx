@@ -1,217 +1,250 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import axios from 'axios';
-import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
-const Dashboard = () => {
-    // --- STATE ---
+// --- İKON OLUŞTURUCULAR ---
+
+// 1. Otobüs İkonu
+const createBusIcon = (isEkSefer) => {
+    return L.divIcon({
+        className: 'custom-div-icon',
+        html: `
+            <div class="bus-marker-container">
+                <div class="marker-ring ${isEkSefer ? 'red' : ''}"></div>
+                <div class="${isEkSefer ? 'marker-pin-red' : 'marker-pin-blue'}">
+                    🚌
+                </div>
+            </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        popupAnchor: [0, -25]
+    });
+};
+
+// 2. Durak İkonu (Turuncu)
+const createStopIcon = () => {
+    return L.divIcon({
+        className: 'custom-div-icon',
+        html: `
+            <div class="stop-marker-container">
+                <div class="stop-marker-pin">D</div>
+            </div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor: [0, -20]
+    });
+};
+
+// Haritayı yumuşakça ortala
+const RecenterAutomatically = ({ lat, lng }) => {
+    const map = useMap();
+    useEffect(() => {
+        if (lat && lng) map.flyTo([lat, lng], 14, { duration: 1.5 });
+    }, [lat, lng, map]);
+    return null;
+};
+
+const Harita = () => {
     const [hatlar, setHatlar] = useState([]);
     const [seciliHat, setSeciliHat] = useState("");
-    const [tahminVerisi, setTahminVerisi] = useState([]);
-    const [analizVerisi, setAnalizVerisi] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [rota, setRota] = useState([]);
+    const [duraklar, setDuraklar] = useState([]);
+    const [merkez, setMerkez] = useState([37.8716, 32.4851]);
+    const [otobusler, setOtobusler] = useState([]);
+    const [gunlukTarife, setGunlukTarife] = useState([]);
+
+    // UI State
+    const [panelAcik, setPanelAcik] = useState(true);
 
     // 1. Hat Listesini Çek
     useEffect(() => {
-        axios.get('http://127.0.0.1:8000/api/hatlar/')
-            .then(res => setHatlar(res.data))
-            .catch(err => console.error("Hatlar alınamadı:", err));
+        axios.get('http://127.0.0.1:8000/api/hatlar/').then(res => setHatlar(res.data));
     }, []);
 
-    // 2. Hat Seçilince Verileri Getir
+    // 2. Seçili Hattın Detaylarını Bul
+    const seciliHatBilgisi = useMemo(() => {
+        return hatlar.find(h => h.id.toString() === seciliHat.toString());
+    }, [seciliHat, hatlar]);
+
+    // 3. Hat Seçilince Verileri Çek
     useEffect(() => {
         if (seciliHat) {
-            setLoading(true);
-            const hatObj = hatlar.find(h => h.id.toString() === seciliHat);
-            if (!hatObj) return;
-
-            // A) Yapay Zeka Tahminlerini Çek (Prophet)
-            axios.get(`http://127.0.0.1:8000/api/talep-tahmin/${hatObj.ana_hat_no}/`)
-                .then(res => {
-                    if (res.data.tahminler) {
-                        const data = res.data.tahminler.map(item => ({
-                            saat: new Date(item.ds).getHours() + ":00",
-                            tahmin: Math.round(item.yhat),
-                            ust_sinir: Math.round(item.yhat_upper)
-                        }));
-                        setTahminVerisi(data);
-                    } else {
-                        setTahminVerisi([]);
-                    }
-                })
-                .catch(() => setTahminVerisi([]));
-
-            // B) Kapasite Analizi (İzdiham Uyarıları)
-            axios.get(`http://127.0.0.1:8000/api/analiz/kapasite/${hatObj.ana_hat_no}/`)
-                .then(res => {
-                    setAnalizVerisi(res.data.analiz || []);
-                    setLoading(false);
-                })
-                .catch(() => setLoading(false));
+            axios.get(`http://127.0.0.1:8000/api/hatlar/${seciliHat}/rota/`).then(res => {
+                if(res.data.length > 0) { setRota(res.data); setMerkez(res.data[0]); }
+            });
+            axios.get(`http://127.0.0.1:8000/api/hatlar/${seciliHat}/duraklar/`).then(res => setDuraklar(res.data));
+            axios.get(`http://127.0.0.1:8000/api/hatlar/${seciliHat}/gunluk_tarife/`).then(res => setGunlukTarife(res.data));
+            setOtobusler([]);
         }
     }, [seciliHat]);
 
-    // Kritik Saatleri Filtrele (Doluluk > %100)
-    const kritikSaatler = analizVerisi.filter(a => a.doluluk_yuzdesi > 100);
+    // 4. Canlı Takip
+    useEffect(() => {
+        if (!seciliHat) return;
+        const fetchBus = () => {
+            axios.get(`http://127.0.0.1:8000/api/simulasyon/aktif-otobusler/?hat_id=${seciliHat}`)
+                .then(res => setOtobusler(res.data || []))
+                .catch(e => console.error(e));
+        };
+        fetchBus();
+        const interval = setInterval(fetchBus, 2000);
+        return () => clearInterval(interval);
+    }, [seciliHat]);
 
     return (
-        <div className="container-fluid p-4 bg-light min-vh-100">
-            {/* ÜST BAR */}
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h2 className="fw-bold text-dark mb-0">📊 Akıllı Yönetim Paneli</h2>
-                    <small className="text-muted">Konya Büyükşehir Belediyesi - Ulaşım Dairesi</small>
-                </div>
-                <div style={{ width: '300px' }}>
+        <div className="position-relative w-100 vh-100 overflow-hidden bg-light">
+
+            {/* HARİTA */}
+            <MapContainer center={merkez} zoom={13} style={{ height: "100%", width: "100%" }} zoomControl={false}>
+                <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                <RecenterAutomatically lat={merkez[0]} lng={merkez[1]} />
+
+                {/* Rota */}
+                {rota.length > 0 && <Polyline positions={rota} color="#3b82f6" weight={6} opacity={0.6} lineCap="round" />}
+
+                {/* DURAKLAR */}
+                {duraklar.map(durak => (
+                    <Marker
+                        key={durak.id}
+                        position={[durak.durak.enlem, durak.durak.boylam]}
+                        icon={createStopIcon()}
+                    >
+                        <Popup>
+                            <div className="text-center p-1">
+                                {/* HAT BİLGİSİ */}
+                                {seciliHatBilgisi && (
+                                    <div className="mb-2 pb-1 border-bottom">
+                                        <div className="badge bg-primary fs-6 mb-1">
+                                            Hat {seciliHatBilgisi.ana_hat_no}
+                                        </div>
+                                        <div className="fw-bold text-primary small text-uppercase">
+                                            {seciliHatBilgisi.ana_hat_adi}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* DURAK İSMİ (İstikamet varsa onu kullan, yoksa kodu yaz) */}
+                                <h6 className="fw-bold mb-0 text-dark">
+                                    🚏 {durak.istikamet ? durak.istikamet : durak.durak.durak_adi}
+                                </h6>
+                                <small className="text-muted">Durak No: {durak.durak.durak_no}</small>
+                            </div>
+                        </Popup>
+                    </Marker>
+                ))}
+
+                {/* CANLI OTOBÜSLER */}
+                {otobusler.map(bus => (
+                    <Marker
+                        key={bus.id}
+                        position={[bus.enlem, bus.boylam]}
+                        icon={createBusIcon(bus.durum === 'kritik' || bus.id.includes('EK'))}
+                    >
+                        <Popup>
+                            <div className="text-center">
+                                <h6 className="fw-bold mb-1">
+                                    {bus.durum === 'kritik' ?
+                                        <span className="text-danger">🚨 EK SEFER</span> :
+                                        <span className="text-primary">🚌 Hat {bus.arac_no}</span>
+                                    }
+                                </h6>
+                                <hr className="my-1"/>
+                                <div className="text-start small">
+                                    <div className="text-muted">İstikamet:</div>
+                                    <strong className="d-block text-dark mb-1">👉 {bus.hedef_durak}</strong>
+                                    <div className="text-muted">Tahmini Varış:</div>
+                                    <span className="badge bg-success">{bus.kalan_sure_dk} dk</span>
+                                </div>
+                            </div>
+                        </Popup>
+                    </Marker>
+                ))}
+            </MapContainer>
+
+            {/* ÜST PANEL */}
+            <div className="position-absolute top-0 start-0 p-3" style={{ zIndex: 1000, maxWidth: '400px' }}>
+                <div className="bg-white p-2 rounded-4 shadow-lg d-flex align-items-center gap-2 border">
+                    <span className="fs-3 ms-2">🚍</span>
                     <select
-                        className="form-select border-primary shadow-sm fw-bold"
+                        className="form-select border-0 fw-bold shadow-none bg-transparent"
                         value={seciliHat}
                         onChange={(e) => setSeciliHat(e.target.value)}
                     >
-                        <option value="">Analiz İçin Hat Seçiniz...</option>
+                        <option value="">Hat Seçiniz...</option>
                         {hatlar.map(h => (
-                            <option key={h.id} value={h.id}>
-                                {h.ana_hat_no} - {h.ana_hat_adi}
-                            </option>
+                            <option key={h.id} value={h.id}>{h.ana_hat_no} - {h.ana_hat_adi}</option>
                         ))}
                     </select>
                 </div>
             </div>
 
-            {!seciliHat ? (
-                <div className="alert alert-warning text-center p-5 shadow-sm rounded-4">
-                    <h4>👈 Lütfen analiz etmek istediğiniz hattı yukarıdan seçiniz.</h4>
-                </div>
-            ) : (
-                <div className="row g-4">
+            {/* PANEL BUTONU */}
+            {seciliHat && (
+                <button
+                    className="position-absolute top-0 end-0 m-3 btn btn-light rounded-circle shadow-lg d-flex align-items-center justify-content-center border"
+                    style={{ zIndex: 1100, width: '50px', height: '50px' }}
+                    onClick={() => setPanelAcik(!panelAcik)}
+                >
+                    <span className="fs-4">{panelAcik ? '✖' : '📋'}</span>
+                </button>
+            )}
 
-                    {/* 1. KART: ÖZET İSTATİSTİKLER */}
-                    <div className="col-12">
-                        <div className="row g-3">
-                            <div className="col-md-4">
-                                <div className="p-3 bg-white shadow-sm rounded border-start border-5 border-primary">
-                                    <h6 className="text-muted text-uppercase small ls-1">Planlanan Sefer</h6>
-                                    <h2 className="fw-bold text-primary mb-0">
-                                        {analizVerisi.reduce((acc, curr) => acc + curr.sefer_sayisi, 0)}
-                                    </h2>
-                                </div>
-                            </div>
-                            <div className="col-md-4">
-                                <div className="p-3 bg-white shadow-sm rounded border-start border-5 border-success">
-                                    <h6 className="text-muted text-uppercase small ls-1">Beklenen Yolcu</h6>
-                                    <h2 className="fw-bold text-success mb-0">
-                                        {analizVerisi.reduce((acc, curr) => acc + curr.ortalama_yolcu, 0)}
-                                    </h2>
-                                </div>
-                            </div>
-                            <div className="col-md-4">
-                                <div className="p-3 bg-white shadow-sm rounded border-start border-5 border-danger">
-                                    <h6 className="text-muted text-uppercase small ls-1">Riskli Saatler</h6>
-                                    <h2 className="fw-bold text-danger mb-0">
-                                        {kritikSaatler.length} Saat
-                                    </h2>
-                                </div>
-                            </div>
+            {/* SAĞ PANEL */}
+            {seciliHat && (
+                <div
+                    className={`position-absolute top-0 end-0 h-100 bg-white shadow-lg transition-transform`}
+                    style={{
+                        zIndex: 1000,
+                        width: '320px',
+                        transform: panelAcik ? 'translateX(0)' : 'translateX(100%)',
+                        transition: 'transform 0.3s ease-in-out',
+                        paddingTop: '70px'
+                    }}
+                >
+                    <div className="d-flex flex-column h-100">
+                        <div className="px-3 pb-2 border-bottom">
+                            <h6 className="fw-bold text-primary mb-0">Canlı Sefer Tablosu</h6>
+                            <small className="text-muted">{gunlukTarife.length} planlı sefer</small>
+                        </div>
+
+                        <div className="flex-grow-1 overflow-auto px-2 py-2">
+                            {gunlukTarife.map((sefer, idx) => {
+                                const isEk = sefer.tip === 'Ek Sefer';
+                                const now = new Date();
+                                const [h, m] = sefer.saat.split(':');
+                                const seferZamani = new Date(); seferZamani.setHours(h, m, 0);
+                                const farkDk = (now - seferZamani) / 60000;
+                                const isLive = farkDk >= 0 && farkDk <= 60;
+
+                                return (
+                                    <div key={idx} className={`p-2 mb-2 rounded border-start border-4 ${isLive ? 'bg-success bg-opacity-10 border-success shadow-sm' : (isEk ? 'bg-danger bg-opacity-10 border-danger' : 'border-light bg-light')}`}>
+                                        <div className="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <span className={`badge ${isEk ? 'bg-danger' : 'bg-primary'} me-2`}>
+                                                    {sefer.saat}
+                                                </span>
+                                                <span className="fw-bold small text-dark">
+                                                    {isEk ? 'EK SEFER' : sefer.alt_hat}
+                                                </span>
+                                            </div>
+                                            {isLive && <div className="spinner-grow spinner-grow-sm text-success" role="status"></div>}
+                                        </div>
+                                        {isLive && <small className="text-success d-block mt-1 ms-1">● Şu an yolda</small>}
+                                    </div>
+                                );
+                            })}
+                            {gunlukTarife.length === 0 && <div className="text-center mt-5 text-muted">Sefer verisi yok.</div>}
                         </div>
                     </div>
-
-                    {/* 2. KART: YAPAY ZEKA GRAFİĞİ */}
-                    <div className="col-lg-8">
-                        <div className="card border-0 shadow-sm h-100">
-                            <div className="card-header bg-white py-3">
-                                <h6 className="fw-bold mb-0">📈 Gelecek 24 Saat Yolcu Tahmini (AI)</h6>
-                            </div>
-                            <div className="card-body">
-                                {loading ? (
-                                    <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>
-                                ) : tahminVerisi.length > 0 ? (
-                                    <div style={{ width: '100%', height: 350 }}>
-                                        <ResponsiveContainer>
-                                            <AreaChart data={tahminVerisi}>
-                                                <defs>
-                                                    <linearGradient id="colorTahmin" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8}/>
-                                                        <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="saat" axisLine={false} tickLine={false} />
-                                                <YAxis axisLine={false} tickLine={false} />
-                                                <Tooltip
-                                                    contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                                                />
-                                                <Legend wrapperStyle={{ paddingTop: '20px' }}/>
-                                                <Area
-                                                    type="monotone"
-                                                    dataKey="tahmin"
-                                                    stroke="#8884d8"
-                                                    fillOpacity={1}
-                                                    fill="url(#colorTahmin)"
-                                                    name="Tahmini Yolcu Sayısı"
-                                                    strokeWidth={3}
-                                                />
-                                                <Area
-                                                    type="monotone"
-                                                    dataKey="ust_sinir"
-                                                    stroke="#82ca9d"
-                                                    fill="transparent"
-                                                    strokeDasharray="5 5"
-                                                    name="Olası Üst Sınır"
-                                                />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                ) : (
-                                    <div className="alert alert-secondary text-center m-4">
-                                        Bu hat için henüz AI modeli eğitilmemiş.<br/>
-                                        <small>Terminalden <code>python manage.py egit_yapayzeka</code> komutunu çalıştırın.</small>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 3. KART: KRİTİK UYARILAR (SAĞ TARAF) */}
-                    <div className="col-lg-4">
-                        <div className="card border-0 shadow-sm h-100">
-                            <div className="card-header bg-danger text-white py-3">
-                                <h6 className="fw-bold mb-0">⚠️ Acil Müdahale Gerekenler</h6>
-                            </div>
-                            <div className="card-body p-0 overflow-auto" style={{ maxHeight: '400px' }}>
-                                {kritikSaatler.length === 0 ? (
-                                    <div className="text-center py-5 text-muted">
-                                        <span className="fs-1">✅</span>
-                                        <p className="mt-2">İzdiham riski bulunmuyor.</p>
-                                    </div>
-                                ) : (
-                                    <ul className="list-group list-group-flush">
-                                        {kritikSaatler.map((k, i) => (
-                                            <li key={i} className="list-group-item d-flex justify-content-between align-items-center p-3">
-                                                <div>
-                                                    <span className="badge bg-danger rounded-pill mb-1">Saat {k.saat}</span>
-                                                    <div className="small text-muted">Yolcu: <strong>{k.ortalama_yolcu}</strong> / Kapasite: {k.kapasite}</div>
-                                                </div>
-                                                <div className="text-end text-danger fw-bold">
-                                                    %{k.doluluk_yuzdesi}
-                                                    <small className="d-block text-muted" style={{fontSize: '10px'}}>DOLULUK</small>
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                            <div className="card-footer bg-white text-center">
-                                <small className="text-muted">Kapasite aşımı olan saatlere <strong>Ek Sefer</strong> eklenmelidir.</small>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             )}
         </div>
     );
 };
 
-export default Dashboard;
+export default Harita;

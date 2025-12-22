@@ -37,13 +37,73 @@ VERI_SETI_KLASORU = os.path.join(PROJECT_ROOT, 'veri_seti')
 # YARDIMCI FONKSİYONLAR
 # =============================================================================
 def normalize_cols(cols):
-    """Sütun isimlerini temizler ve standartlaştırır."""
+    """Sütun isimlerini temizler."""
     return [
-        str(c).strip().replace('\n', '').replace('\r', '').upper()
-            .replace('İ', 'I').replace(' ', '_')
+        str(c).strip().upper()
+        .replace('İ', 'I').replace('Ğ', 'G').replace('Ü', 'U')
+        .replace('Ş', 'S').replace('Ö', 'O').replace('Ç', 'C')
+        .replace(' ', '_').replace('\n', '')
         for c in cols
     ]
 
+
+def get_elkart_data(hat_no):
+    """
+    Elkart verilerini tüm dosyalardan okur, birleştirir ve temizler.
+    Hataları gizlemez, konsola yazar.
+    """
+    if not os.path.exists(VERI_SETI_KLASORU):
+        print(f"HATA: Veri seti klasörü bulunamadı: {VERI_SETI_KLASORU}")
+        return pd.DataFrame()
+
+    dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
+    if not dosyalar:
+        print("UYARI: Hiç 'elkart*.csv' dosyası bulunamadı.")
+        return pd.DataFrame()
+
+    # Dosyaları tarihe göre sırala
+    dosyalar.sort(reverse=True)
+    df_list = []
+    hat_no_int = int(hat_no)
+
+    print(f"Hat {hat_no} için {len(dosyalar)} adet Elkart dosyası taranıyor...")
+
+    for dosya in dosyalar:
+        try:
+            # Dosya ayracını tespit et
+            with open(dosya, 'r', encoding='utf-8', errors='ignore') as f:
+                ilk_satir = f.readline()
+                ayirici = ';' if ';' in ilk_satir else ','
+
+            # Parçalı okuma (Memory dostu)
+            iter_csv = pd.read_csv(dosya, sep=ayirici, chunksize=50000,
+                                   encoding='utf-8', on_bad_lines='skip', low_memory=False)
+
+            for chunk in iter_csv:
+                chunk.columns = normalize_cols(chunk.columns)
+
+                # Sütun eşleştirme (Esnek)
+                hat_col = next((c for c in chunk.columns if 'HAT' in c and 'NO' in c), None)
+                yolcu_col = next((c for c in chunk.columns if 'BINIS' in c or 'SAYI' in c or 'YOLCU' in c), None)
+                saat_col = next((c for c in chunk.columns if 'SAAT' in c), None)
+
+                if hat_col and yolcu_col and saat_col:
+                    filtered = chunk[chunk[hat_col] == hat_no_int].copy()
+                    if not filtered.empty:
+                        filtered = filtered.rename(columns={yolcu_col: 'yolcu', saat_col: 'saat'})
+                        # Sayısal çevrim
+                        filtered['yolcu'] = pd.to_numeric(filtered['yolcu'], errors='coerce').fillna(1)
+                        df_list.append(filtered[['yolcu', 'saat']])
+
+        except Exception as e:
+            print(f"Dosya okuma hatası ({os.path.basename(dosya)}): {str(e)}")
+            continue
+
+    if not df_list:
+        print(f"Hat {hat_no} için veri bulunamadı.")
+        return pd.DataFrame()
+
+    return pd.concat(df_list, ignore_index=True)
 
 def get_tarife_dataframe():
     """
@@ -222,71 +282,58 @@ class CapacityAnalysisView(APIView):
             hat_no = str(hat_no).strip()
             OTOBUS_KAPASITESI = 80
 
-            # 1. ARZ (Tarife Dosyası)
+            # 1. ARZ (Sefer Sayıları)
             df_tarife = get_tarife_dataframe()
-            if df_tarife is None:
-                return Response({"analiz": [], "error": "Tarife dosyası bulunamadı (veri_seti klasörüne bakınız)."},
-                                status=200)
-
-            hat_col = next((c for c in df_tarife.columns if 'HAT' in c and 'NO' in c), None)
-            if not hat_col: return Response({"analiz": [], "error": "Tarife dosyasında Hat No sütunu bulunamadı."},
-                                            status=200)
-
-            df_tarife['hat_str'] = df_tarife[hat_col].astype(str).str.split('.').str[0].str.strip()
-            df_hat = df_tarife[df_tarife['hat_str'] == hat_no].copy()
-
-            # Saatlik Sefer Sayılarını Hesapla
             sefer_sayilari = {}
-            saat_col = next((c for c in df_hat.columns if 'SAAT' in c), None)
-            if saat_col:
-                df_hat['saat_dilimi'] = df_hat[saat_col].astype(str).apply(lambda x: x.split(' ')[-1].split(':')[0])
-                df_hat = df_hat[df_hat['saat_dilimi'].str.isnumeric()]
-                if not df_hat.empty:
-                    df_hat['saat_dilimi'] = df_hat['saat_dilimi'].astype(int)
-                    sefer_sayilari = df_hat.groupby('saat_dilimi').size().to_dict()
 
-            # 2. TALEP (Elkart Dosyaları)
-            dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
-            df_list = []
-            dosyalar.sort(reverse=True)
-            for dosya in dosyalar[:2]:
-                try:
-                    with open(dosya, 'r', encoding='utf-8') as f:
-                        ayirici = ';' if ';' in f.readline() else ','
+            if df_tarife is not None:
+                hat_col = next((c for c in df_tarife.columns if 'HAT' in c and 'NO' in c), None)
+                saat_col = next((c for c in df_tarife.columns if 'SAAT' in c), None)
 
-                    # Chunk ile okuma
-                    iter_csv = pd.read_csv(dosya, sep=ayirici, chunksize=10000, on_bad_lines='skip')
-                    for chunk in iter_csv:
-                        chunk.columns = normalize_cols(chunk.columns)
-                        y_col = next((c for c in chunk.columns if 'BINIS' in c or 'SAYI' in c), None)
-                        h_col = next((c for c in chunk.columns if 'HAT' in c and 'NO' in c), None)
-                        s_col = next((c for c in chunk.columns if 'SAAT' in c), None)
+                if hat_col and saat_col:
+                    df_tarife['hat_str'] = df_tarife[hat_col].astype(str).str.split('.').str[0].str.strip()
+                    df_hat = df_tarife[df_tarife['hat_str'] == hat_no].copy()
 
-                        if y_col and h_col and s_col:
-                            sub = chunk[chunk[h_col] == int(hat_no)].copy()
-                            if not sub.empty:
-                                sub = sub.rename(columns={y_col: 'yolcu', s_col: 'saat'})
-                                df_list.append(sub[['yolcu', 'saat']])
-                except:
-                    pass
+                    df_hat['saat_dilimi'] = df_hat[saat_col].astype(str).apply(
+                        lambda x: int(x.split(':')[0]) if ':' in str(x) else -1
+                    )
+                    sefer_sayilari = df_hat[df_hat['saat_dilimi'] >= 0].groupby('saat_dilimi').size().to_dict()
 
+            # 2. TALEP (Elkart Verileri - Yeni Fonksiyon İle)
+            df_talep = get_elkart_data(hat_no)
             talep_ort = {}
-            if df_list:
-                df_talep = pd.concat(df_list, ignore_index=True)
-                df_talep['saat'] = df_talep['saat'].astype(str).apply(
-                    lambda x: int(x.split(':')[0]) if ':' in str(x) else 0)
-                talep_ort = df_talep.groupby('saat')['yolcu'].mean().to_dict()
 
-            # 3. SONUÇLARI BİRLEŞTİR
+            if not df_talep.empty:
+                # Saati al (08:45 -> 8)
+                df_talep['saat_dilimi'] = df_talep['saat'].astype(str).apply(
+                    lambda x: int(x.split(':')[0]) if ':' in str(x) else 0
+                )
+
+                # Saatlik Toplam Biniş
+                saatlik_toplam = df_talep.groupby('saat_dilimi')['yolcu'].sum()
+
+                # Günlük Ortalama Hesabı:
+                # Toplam binişi veri setindeki tahmini gün sayısına bölüyoruz (örn: 1 yıl için 365)
+                # Veri setinizin büyüklüğüne göre bu sayıyı artırabilirsiniz (örn: 2 yılsa 730)
+                gun_sayisi = 365
+                talep_ort = (saatlik_toplam / gun_sayisi).to_dict()
+            else:
+                print(f"UYARI: Hat {hat_no} için elkart verisi okunamadı.")
+
+            # 3. BİRLEŞTİRME
             sonuc = []
             for saat in range(6, 24):
                 sefer = sefer_sayilari.get(saat, 0)
                 yolcu = round(talep_ort.get(saat, 0))
-                kapasite = sefer * OTOBUS_KAPASITESI
-                doluluk = round((yolcu / kapasite) * 100) if kapasite > 0 else 0
 
-                # Sefer yoksa ama yolcu varsa (İzdiham riski)
-                if sefer == 0 and yolcu > 0: doluluk = 999
+                # Grafik hatasını önlemek için: Sefer yoksa ama yolcu varsa yapay 1 sefer göster (veya 0)
+                kapasite = sefer * OTOBUS_KAPASITESI
+
+                doluluk = 0
+                if kapasite > 0:
+                    doluluk = round((yolcu / kapasite) * 100)
+                elif yolcu > 0:
+                    doluluk = 100
 
                 sonuc.append({
                     "saat": f"{saat:02d}:00",
@@ -299,27 +346,48 @@ class CapacityAnalysisView(APIView):
             return Response({"hat_no": hat_no, "analiz": sonuc})
 
         except Exception as e:
+            print(f"Kapasite Analiz Hatası: {str(e)}")
             return Response({"error": str(e)}, status=500)
-
 
 # =============================================================================
 # 4. YAPAY ZEKA TAHMİN VIEW'LARI
 # =============================================================================
+# backend/api/views.py dosyasında PredictDemandView sınıfını bulun ve şu şekilde güncelleyin:
 class PredictDemandView(APIView):
     def get(self, request, hat_no):
-        if not demand_predictor: return Response({"error": "ML Modülü Yok"}, status=500)
+        if not demand_predictor:
+            return Response({"error": "ML Modülü Yok veya Yüklenemedi"}, status=500)
 
         period = request.query_params.get('period', 'daily')
-        agg_map = {'daily': (24, 'hour'), 'weekly': (7, 'day'), 'monthly': (30, 'day')}
+
+        # DÜZELTME: Model saatlik ('freq=H') çalıştığı için
+        # 'hours' parametresine toplam SAAT sayısını vermeliyiz.
+        agg_map = {
+            'daily': (24, 'hour'),  # 1 Gün = 24 Saat
+            'weekly': (168, 'day'),  # 7 Gün x 24 = 168 Saat
+            'monthly': (720, 'day'),  # 30 Gün x 24 = 720 Saat
+            'yearly': (8760, 'month')  # 365 Gün x 24 = 8760 Saat
+        }
+
+        # Varsayılan günlük
         hours, agg = agg_map.get(period, (24, 'hour'))
 
         try:
             preds = demand_predictor.predict(int(hat_no), hours=hours, agg=agg)
+
             if preds is None:
-                return Response({"durum": "egitilmemis", "mesaj": "Model eğitilmemiş."})
-            return Response({"hat_no": hat_no, "period": period, "tahminler": preds})
+                return Response({
+                    "durum": "egitilmemis",
+                    "mesaj": f"Hat {hat_no} için model eğitilmemiş. Terminalden 'python manage.py analiz_araclar --egit' çalıştırın."
+                })
+
+            return Response({
+                "hat_no": hat_no,
+                "period": period,
+                "predictions": preds
+            })
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": f"Tahmin hatası: {str(e)}"}, status=500)
 
 
 class PredictTravelTimeView(APIView):

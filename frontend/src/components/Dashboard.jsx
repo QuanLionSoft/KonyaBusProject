@@ -1,365 +1,440 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
+  Container, Row, Col, Card, Form, Button,
+  Table, Spinner, Alert, Badge, ButtonGroup
+} from 'react-bootstrap';
+import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar
+  BarChart, Bar, Legend, ComposedChart
 } from 'recharts';
-import { Bus, TrendingUp, Calendar, Activity, AlertCircle, BarChart3, Clock, MapPin } from 'lucide-react';
+import {
+  Bus, Users, TrendingUp, AlertTriangle,
+  Activity, LayoutDashboard, PieChart, ArrowRight
+} from 'lucide-react';
 
 const Dashboard = () => {
-  // --- STATE TANIMLARI ---
+  // --- STATE ---
   const [hatlar, setHatlar] = useState([]);
   const [selectedLine, setSelectedLine] = useState('');
   const [period, setPeriod] = useState('daily'); // daily, weekly, monthly, yearly
+
+  // Veri State'leri
   const [predictions, setPredictions] = useState([]);
+  const [capacityData, setCapacityData] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [stats, setStats] = useState({ total: 0, max: 0, avg: 0 });
 
-  // 1. Hat Listesini Çek (Dinamik Seçim İçin)
+  // İstatistikler
+  const [stats, setStats] = useState({
+    totalDemand: 0,
+    maxDemand: 0,
+    riskHour: '-',
+    avgOccupancy: 0
+  });
+
+  // 1. Hat Listesini Çek
   useEffect(() => {
     axios.get('http://127.0.0.1:8000/api/hatlar/')
       .then(res => {
         setHatlar(res.data);
-        if (res.data.length > 0) setSelectedLine(res.data[0].ana_hat_no); // İlk hattı seç
+        if (res.data.length > 0) setSelectedLine(res.data[0].ana_hat_no);
       })
       .catch(err => console.error("Hatlar alınamadı:", err));
   }, []);
 
-
-  // 2. Tahmin Verilerini Çek
+  // 2. Dashboard Verilerini Çek
   useEffect(() => {
     if (!selectedLine) return;
 
-    const fetchForecast = async () => {
+    const fetchData = async () => {
       setLoading(true);
       setError(null);
-      setPredictions([]);
+      setPredictions([]); // Önceki veriyi temizle
 
       try {
-        const url = `http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`;
-        console.log("İstek atılıyor:", url);
+        // A) Talep Tahmini
+        const demandRes = await axios.get(`http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`);
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-           // Backend hatası varsa
-           if(response.status === 404) {
-               throw new Error("Bu hat için henüz yapay zeka modeli eğitilmemiş. Lütfen terminalden modeli eğitin.");
-           }
-           const errText = await response.text();
-           throw new Error(`Sunucu Hatası: ${response.status}`);
+        // B) Kapasite Analizi (Sadece Günlük modda anlamlıdır, diğerlerinde boş dönebiliriz)
+        let capacityRes = { data: { analiz: [] } };
+        if (period === 'daily') {
+            try {
+                capacityRes = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/`);
+            } catch (e) {
+                console.warn("Kapasite analizi çekilemedi.");
+            }
         }
 
-        const result = await response.json();
+        // --- Veri İşleme ---
 
-        if (result.predictions && Array.isArray(result.predictions) && result.predictions.length > 0) {
-          // Veriyi Formatla
-          const formattedData = result.predictions.map(item => {
+        // 1. Tahmin Verisi Formatlama
+        const rawPreds = demandRes.data.predictions || demandRes.data.tahminler || [];
+
+        const formattedPreds = rawPreds.map(item => {
             const dateObj = new Date(item.ds);
             return {
-              fullDate: item.ds,
-              displayDate: dateObj.toLocaleDateString('tr-TR', {
-                month: period === 'yearly' ? 'long' : 'short',
-                day: period === 'yearly' ? undefined : 'numeric',
-                hour: period === 'daily' ? '2-digit' : undefined,
-                minute: period === 'daily' ? '2-digit' : undefined,
-              }),
-              tahmin: Math.round(item.yhat),
+                fullDate: item.ds,
+                // Yıllık görünümde sadece Ay ismi, diğerlerinde Gün/Ay veya Saat
+                displayDate: dateObj.toLocaleDateString('tr-TR', {
+                    hour: period === 'daily' ? '2-digit' : undefined,
+                    day: period === 'yearly' ? undefined : 'numeric', // Yıllıkta günü gizle
+                    month: period === 'yearly' ? 'long' : 'short',    // Yıllıkta uzun ay ismi
+                    year: period === 'yearly' ? 'numeric' : undefined
+                }),
+                tahmin: Math.round(item.yhat)
             };
-          });
+        });
+        setPredictions(formattedPreds);
 
-          setPredictions(formattedData);
+        // 2. Kapasite Verisi
+        setCapacityData(capacityRes.data.analiz || []);
 
-          // İstatistikleri Hesapla
-          const total = formattedData.reduce((acc, curr) => acc + curr.tahmin, 0);
-          const vals = formattedData.map(d => d.tahmin);
-          const max = Math.max(...vals);
-          const avg = Math.round(total / formattedData.length);
+        // 3. KPI Hesaplama
+        if (formattedPreds.length > 0) {
+            const total = formattedPreds.reduce((acc, cur) => acc + cur.tahmin, 0);
+            const maxVal = Math.max(...formattedPreds.map(d => d.tahmin));
 
-          setStats({ total, max, avg });
-        } else {
-           setError("Bu periyot için yeterli veri bulunamadı.");
+            // Risk sadece günlük modda hesaplanır
+            let risky = '-';
+            let avgOcc = 0;
+            if (capacityRes.data.analiz && capacityRes.data.analiz.length > 0) {
+                const risks = capacityRes.data.analiz.filter(a => a.doluluk_yuzdesi > 90);
+                if (risks.length > 0) risky = risks[0].saat;
+
+                const totalOcc = capacityRes.data.analiz.reduce((acc, cur) => acc + cur.doluluk_yuzdesi, 0);
+                avgOcc = Math.round(totalOcc / capacityRes.data.analiz.length);
+            }
+
+            setStats({
+                totalDemand: total,
+                maxDemand: maxVal,
+                riskHour: risky,
+                avgOccupancy: avgOcc
+            });
         }
 
       } catch (err) {
-        console.error("Hata:", err);
-        setError(err.message || "Veri çekilemedi.");
+        console.error(err);
+        setError("Veriler alınırken bir hata oluştu. Lütfen Backend'in çalıştığından ve modelin eğitildiğinden emin olun.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchForecast();
+    fetchData();
   }, [selectedLine, period]);
 
-  // Başlık Yardımcısı
-  const getTitle = () => {
-    switch(period) {
-      case 'daily': return '24 Saatlik Anlık Tahmin';
-      case 'weekly': return '7 Günlük Planlama';
-      case 'monthly': return '30 Günlük Projeksiyon';
-      case 'yearly': return 'Yıllık Trend Analizi';
-      default: return 'Talep Tahmini';
+  // Grafik Bileşeni Seçimi (Yıllık için BarChart daha şık durur)
+  const renderMainChart = () => {
+    if (period === 'yearly') {
+        return (
+            // DÜZELTME: minWidth={0} eklendi
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <BarChart data={predictions}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9ecef" />
+                    <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#6c757d'}} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#6c757d'}} />
+                    <Tooltip content={<CustomTooltip />} cursor={{fill: '#f8f9fa'}} />
+                    <Bar dataKey="tahmin" fill="#0d6efd" radius={[4, 4, 0, 0]} barSize={40} />
+                </BarChart>
+            </ResponsiveContainer>
+        );
     }
+    // Diğerleri için AreaChart
+    return (
+        // DÜZELTME: minWidth={0} eklendi
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+            <AreaChart data={predictions}>
+                <defs>
+                    <linearGradient id="colorDemand" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0d6efd" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#0d6efd" stopOpacity={0}/>
+                    </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9ecef" />
+                <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#6c757d'}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#6c757d'}} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="tahmin" stroke="#0d6efd" strokeWidth={3} fill="url(#colorDemand)" activeDot={{ r: 6 }} />
+            </AreaChart>
+        </ResponsiveContainer>
+    );
   };
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
+    <Container fluid className="py-4 bg-light min-vh-100">
 
       {/* --- HEADER --- */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3 tracking-tight">
-            <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
-              <BarChart3 size={28} strokeWidth={2.5} />
+      <Row className="mb-4 align-items-center">
+        <Col md={5}>
+          <div className="d-flex align-items-center">
+            <div className="bg-primary text-white p-2 rounded me-3 shadow-sm">
+              <LayoutDashboard size={24} />
             </div>
-            Yönetim Paneli
-          </h1>
-          <p className="text-slate-500 font-medium mt-2 ml-1 flex items-center gap-2">
-            <Activity size={16} className="text-emerald-500" />
-            Yapay Zeka Destekli Talep Tahmin Sistemi
-          </p>
-        </div>
+            <div>
+              <h2 className="mb-0 fw-bold text-dark">Yönetim Paneli</h2>
+              <small className="text-muted">Akıllı Ulaşım Analizi</small>
+            </div>
+          </div>
+        </Col>
 
-        <div className="flex flex-wrap gap-4 bg-slate-50 p-2 rounded-xl border border-slate-100">
+        <Col md={7}>
+          <div className="d-flex justify-content-md-end gap-2 mt-3 mt-md-0 flex-wrap">
             {/* Hat Seçimi */}
-            <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <MapPin className="h-4 w-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
-                </div>
-                <select
-                    value={selectedLine}
-                    onChange={(e) => setSelectedLine(e.target.value)}
-                    className="pl-10 pr-8 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm hover:border-indigo-300 transition-all cursor-pointer outline-none appearance-none"
+            <Form.Select
+              value={selectedLine}
+              onChange={(e) => setSelectedLine(e.target.value)}
+              className="shadow-sm border-0"
+              style={{ minWidth: '180px', maxWidth: '300px' }}
+            >
+              <option value="" disabled>Hat Seçiniz</option>
+              {hatlar.map(h => (
+                <option key={h.id} value={h.ana_hat_no}>
+                  {h.ana_hat_no} - {h.ana_hat_adi}
+                </option>
+              ))}
+            </Form.Select>
+
+            {/* Periyot Seçimi (GÜNCELLENDİ) */}
+            <ButtonGroup className="shadow-sm bg-white rounded">
+              {['daily', 'weekly', 'monthly', 'yearly'].map((p) => (
+                <Button
+                  key={p}
+                  variant={period === p ? 'primary' : 'light'}
+                  className={period !== p ? 'bg-white border-0 text-secondary' : ''}
+                  onClick={() => setPeriod(p)}
+                  size="sm"
                 >
-                    <option value="" disabled>Hat Seçiniz</option>
-                    {hatlar.map(h => (
-                        <option key={h.id} value={h.ana_hat_no}>
-                            Hat {h.ana_hat_no} - {h.ana_hat_adi}
-                        </option>
-                    ))}
-                </select>
-                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                </div>
-            </div>
+                  {p === 'daily' ? 'Günlük' : p === 'weekly' ? 'Haftalık' : p === 'monthly' ? 'Aylık' : 'Yıllık'}
+                </Button>
+              ))}
+            </ButtonGroup>
+          </div>
+        </Col>
+      </Row>
 
-            {/* Periyot Seçimi */}
-            <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
-                {['daily', 'weekly', 'monthly', 'yearly'].map((p) => (
-                    <button
-                        key={p}
-                        onClick={() => setPeriod(p)}
-                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
-                            period === p
-                                ? 'bg-indigo-600 text-white shadow-md'
-                                : 'text-slate-500 hover:bg-slate-50 hover:text-indigo-600'
-                        }`}
-                    >
-                        {p === 'daily' ? 'Günlük' : p === 'weekly' ? 'Haftalık' : p === 'monthly' ? 'Aylık' : 'Yıllık'}
-                    </button>
-                ))}
-            </div>
-        </div>
-      </div>
-
-      {/* --- İÇERİK --- */}
+      {/* --- CONTENT --- */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-96 bg-white rounded-3xl shadow-sm border border-slate-100">
-           <div className="relative">
-             <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-             <div className="absolute inset-0 flex items-center justify-center">
-                <Activity size={24} className="text-indigo-600" />
-             </div>
-           </div>
-           <h3 className="text-lg font-bold text-slate-800 mt-6">Analiz Yapılıyor...</h3>
-           <p className="text-slate-400 text-sm mt-1">AI modelleri verileri işliyor, lütfen bekleyin.</p>
+        <div className="d-flex flex-col justify-content-center align-items-center py-5" style={{ minHeight: '400px' }}>
+          <Spinner animation="border" variant="primary" role="status" style={{ width: '3rem', height: '3rem' }} />
+          <p className="mt-3 text-muted fw-medium">Veriler Analiz Ediliyor...</p>
         </div>
       ) : error ? (
-        <div className="bg-red-50 border border-red-100 rounded-2xl p-8 text-center max-w-2xl mx-auto mt-10">
-          <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-             <AlertCircle className="text-red-600 w-8 h-8" />
-          </div>
-          <h3 className="text-red-900 font-bold text-xl mb-2">Veri Analiz Hatası</h3>
-          <p className="text-red-700 mb-6">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors shadow-lg shadow-red-200"
-          >
-            Sayfayı Yenile
-          </button>
-        </div>
+        <Alert variant="danger" className="d-flex align-items-center shadow-sm border-0">
+          <AlertTriangle className="me-2" />
+          <div>{error}</div>
+        </Alert>
       ) : (
         <>
             {/* KPI KARTLARI */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <StatsCard
-                    title="TOPLAM TAHMİNİ YOLCU"
-                    value={stats.total.toLocaleString('tr-TR')}
-                    subText={`Seçili periyot (${period}) toplamı`}
-                    icon={<Bus className="w-6 h-6 text-white" />}
-                    gradient="from-blue-500 to-indigo-600"
-                    trend="+12%" // Örnek trend
-                />
-                <StatsCard
-                    title="EN YOĞUN ZAMAN"
-                    value={stats.max.toLocaleString('tr-TR')}
-                    subText="Maksimum anlık yolcu sayısı"
-                    icon={<TrendingUp className="w-6 h-6 text-white" />}
-                    gradient="from-emerald-500 to-teal-600"
-                    trend="Stabil"
-                />
-                <StatsCard
-                    title="ORTALAMA TALEP"
-                    value={stats.avg.toLocaleString('tr-TR')}
-                    subText="Ortalama doluluk beklentisi"
-                    icon={<Activity className="w-6 h-6 text-white" />}
-                    gradient="from-violet-500 to-purple-600"
-                    trend="-5%"
-                />
-            </div>
+            <Row className="g-3 mb-4">
+                <Col md={6} lg={3}>
+                    <KpiCard
+                        title="Toplam Tahmin"
+                        value={stats.totalDemand.toLocaleString()}
+                        icon={<Users size={24} />}
+                        color="primary"
+                        sub="Seçili dönem toplamı"
+                    />
+                </Col>
+                <Col md={6} lg={3}>
+                    <KpiCard
+                        title="Maksimum Talep"
+                        value={stats.maxDemand.toLocaleString()}
+                        icon={<Activity size={24} />}
+                        color="success"
+                        sub="En yoğun periyotta"
+                    />
+                </Col>
+                <Col md={6} lg={3}>
+                    <KpiCard
+                        title="Ortalama Doluluk"
+                        value={`%${stats.avgOccupancy}`}
+                        icon={<PieChart size={24} />}
+                        color="info"
+                        sub={period === 'daily' ? "Kapasite kullanım oranı" : "Veri sadece günlük modda"}
+                    />
+                </Col>
+                <Col md={6} lg={3}>
+                    <KpiCard
+                        title="Riskli Saat"
+                        value={stats.riskHour}
+                        icon={<AlertTriangle size={24} />}
+                        color={stats.riskHour !== '-' ? 'danger' : 'secondary'}
+                        sub={period === 'daily' ? "Olası izdiham uyarısı" : "-"}
+                        isAlert={stats.riskHour !== '-'}
+                    />
+                </Col>
+            </Row>
 
-            {/* GRAFİK ALANI */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden">
-                <div className="flex justify-between items-end mb-8 relative z-10">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                            {getTitle()}
-                        </h2>
-                        <p className="text-slate-400 text-sm mt-1 font-medium">
-                            Prophet Algoritması Tahmin Sonuçları
-                        </p>
+            {/* GRAFİKLER */}
+            <Row className="g-4 mb-4">
+                {/* SOL: Ana Talep Grafiği */}
+                <Col lg={period === 'daily' ? 8 : 12}>
+                    <Card className="shadow-sm border-0 h-100">
+                        <Card.Body>
+                            <div className="d-flex justify-content-between align-items-center mb-4">
+                                <h5 className="card-title fw-bold mb-0 text-dark">
+                                    <TrendingUp size={20} className="me-2 text-primary" />
+                                    Yolcu Talebi Tahmini ({period === 'yearly' ? 'Yıllık Projeksiyon' : period === 'daily' ? '24 Saatlik' : period === 'weekly' ? '7 Günlük' : '30 Günlük'})
+                                </h5>
+                                <Badge bg="light" text="primary" className="border border-primary-subtle">
+                                    AI Model: Prophet
+                                </Badge>
+                            </div>
+
+                            {/* DÜZELTME: width: '100%' ve minWidth: 0 eklendi */}
+                            <div style={{ width: '100%', height: '350px', minWidth: 0 }}>
+                                {renderMainChart()}
+                            </div>
+                        </Card.Body>
+                    </Card>
+                </Col>
+
+                {/* SAĞ: Doluluk Analizi (Sadece GÜNLÜK modda göster) */}
+                {period === 'daily' && (
+                    <Col lg={4}>
+                        <Card className="shadow-sm border-0 h-100">
+                            <Card.Body>
+                                <div className="mb-4">
+                                    <h5 className="card-title fw-bold mb-1 text-dark">
+                                        <Bus size={20} className="me-2 text-info" />
+                                        Doluluk Analizi
+                                    </h5>
+                                    <small className="text-muted">Kapasite vs Beklenen Yolcu</small>
+                                </div>
+
+                                {capacityData.length > 0 ? (
+                                    /* DÜZELTME: minWidth: 0 eklendi */
+                                    <div style={{ width: '100%', height: '350px', minWidth: 0 }}>
+                                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                                            <ComposedChart data={capacityData} layout="vertical">
+                                                <CartesianGrid stroke="#e9ecef" horizontal={false} />
+                                                <XAxis type="number" hide />
+                                                <YAxis
+                                                    dataKey="saat"
+                                                    type="category"
+                                                    scale="band"
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    width={40}
+                                                    tick={{fontSize: 11, fill: '#6c757d'}}
+                                                />
+                                                <Tooltip cursor={{fill: 'transparent'}} />
+                                                <Legend wrapperStyle={{fontSize: '12px'}} />
+
+                                                <Bar dataKey="kapasite" name="Kapasite" fill="#dee2e6" barSize={12} radius={[0, 4, 4, 0]} />
+                                                <Bar dataKey="ortalama_yolcu" name="Beklenen" fill="#0dcaf0" barSize={8} radius={[0, 4, 4, 0]} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                                        <Bus size={48} className="mb-2 opacity-25" />
+                                        <small className="text-center">Analiz verisi bulunamadı.<br/>Tarife dosyasını kontrol edin.</small>
+                                    </div>
+                                )}
+                            </Card.Body>
+                        </Card>
+                    </Col>
+                )}
+            </Row>
+
+            {/* TABLO: Saatlik Detaylar (Sadece Günlük) */}
+            {capacityData.length > 0 && period === 'daily' && (
+                <Card className="shadow-sm border-0 overflow-hidden">
+                    <Card.Header className="bg-white py-3 border-bottom border-light d-flex justify-content-between align-items-center">
+                        <h6 className="m-0 fw-bold text-dark">Saatlik Sefer Planlaması</h6>
+                        <Button variant="link" className="text-decoration-none p-0 text-primary fw-bold" size="sm">
+                            Detaylı Rapor <ArrowRight size={14} className="ms-1" />
+                        </Button>
+                    </Card.Header>
+                    <div className="table-responsive">
+                        <Table hover className="mb-0 align-middle">
+                            <thead className="bg-light text-secondary small text-uppercase">
+                                <tr>
+                                    <th className="ps-4">Saat</th>
+                                    <th>Sefer Sayısı</th>
+                                    <th>Kapasite</th>
+                                    <th>Tahmini Yolcu</th>
+                                    <th style={{width: '25%'}}>Doluluk</th>
+                                    <th>Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {capacityData.map((row, idx) => (
+                                    <tr key={idx}>
+                                        <td className="ps-4 fw-bold">{row.saat}</td>
+                                        <td>{row.sefer_sayisi}</td>
+                                        <td className="text-muted">{row.kapasite}</td>
+                                        <td className="fw-medium">{row.ortalama_yolcu}</td>
+                                        <td>
+                                            <div className="d-flex align-items-center">
+                                                <div className="progress flex-grow-1" style={{height: '6px'}}>
+                                                    <div
+                                                        className={`progress-bar ${row.doluluk_yuzdesi > 90 ? 'bg-danger' : (row.doluluk_yuzdesi > 70 ? 'bg-warning' : 'bg-success')}`}
+                                                        role="progressbar"
+                                                        style={{width: `${Math.min(row.doluluk_yuzdesi, 100)}%`}}
+                                                    ></div>
+                                                </div>
+                                                <span className="ms-2 small text-muted">%{row.doluluk_yuzdesi}</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {row.doluluk_yuzdesi > 100 ? (
+                                                <Badge bg="danger-subtle" text="danger">Yetersiz</Badge>
+                                            ) : row.doluluk_yuzdesi > 80 ? (
+                                                <Badge bg="warning-subtle" text="warning">Yoğun</Badge>
+                                            ) : (
+                                                <Badge bg="success-subtle" text="success">Uygun</Badge>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </Table>
                     </div>
-                    <div className="hidden md:flex items-center gap-2 text-sm font-bold bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full border border-indigo-100">
-                        <Calendar size={14} />
-                        {new Date().toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
-                    </div>
-                </div>
-
-                {/* Dekoratif Arkaplan */}
-                <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-indigo-50 rounded-full opacity-50 blur-3xl pointer-events-none"></div>
-
-                <div className="h-[450px] w-full relative z-10">
-                    <ResponsiveContainer width="100%" height="100%">
-                        {period === 'yearly' ? (
-                            <BarChart data={predictions} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis
-                                    dataKey="displayDate"
-                                    stroke="#94a3b8"
-                                    tick={{fontSize: 12, fontWeight: 600}}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    dy={10}
-                                />
-                                <YAxis
-                                    stroke="#94a3b8"
-                                    tick={{fontSize: 12, fontWeight: 600}}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    dx={-10}
-                                />
-                                <Tooltip content={<CustomTooltip />} cursor={{fill: '#f8fafc'}} />
-                                <Bar
-                                    dataKey="tahmin"
-                                    fill="url(#colorBar)"
-                                    radius={[8, 8, 0, 0]}
-                                    maxBarSize={60}
-                                />
-                                <defs>
-                                    <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                                        <stop offset="100%" stopColor="#818cf8" stopOpacity={0.8}/>
-                                    </linearGradient>
-                                </defs>
-                            </BarChart>
-                        ) : (
-                            <AreaChart data={predictions} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
-                                <defs>
-                                    <linearGradient id="colorTahmin" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis
-                                    dataKey="displayDate"
-                                    stroke="#94a3b8"
-                                    tick={{fontSize: 12, fontWeight: 600}}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    dy={10}
-                                />
-                                <YAxis
-                                    stroke="#94a3b8"
-                                    tick={{fontSize: 12, fontWeight: 600}}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    dx={-10}
-                                />
-                                <Tooltip content={<CustomTooltip />} />
-                                <Area
-                                    type="monotone"
-                                    dataKey="tahmin"
-                                    stroke="#4f46e5"
-                                    strokeWidth={4}
-                                    fill="url(#colorTahmin)"
-                                    activeDot={{ r: 8, strokeWidth: 0, fill: '#4f46e5' }}
-                                    animationDuration={1500}
-                                />
-                            </AreaChart>
-                        )}
-                    </ResponsiveContainer>
-                </div>
-            </div>
+                </Card>
+            )}
         </>
       )}
-    </div>
+    </Container>
   );
 };
 
-// --- BİLEŞENLER ---
+// --- YARDIMCI BİLEŞENLER ---
+
+const KpiCard = ({ title, value, icon, sub, color, isAlert }) => (
+    <Card className={`border-0 shadow-sm h-100 ${isAlert ? 'border-start border-4 border-danger' : ''}`}>
+        <Card.Body>
+            <div className="d-flex justify-content-between align-items-start mb-2">
+                <div className={`p-2 rounded bg-${color}-subtle text-${color}`}>
+                    {icon}
+                </div>
+                {isAlert && <Badge bg="danger" className="rounded-pill">!</Badge>}
+            </div>
+            <h3 className="fw-bold text-dark mb-1">{value}</h3>
+            <div className="text-secondary fw-medium small mb-2">{title}</div>
+            {sub && <small className="text-muted d-flex align-items-center"><div className="bg-secondary rounded-circle me-1" style={{width: 4, height: 4}}></div> {sub}</small>}
+        </Card.Body>
+    </Card>
+);
 
 const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-slate-800 text-white p-4 rounded-xl shadow-2xl border border-slate-700 backdrop-blur-sm bg-opacity-90">
-        <p className="text-slate-400 text-xs font-bold mb-1 uppercase tracking-wider">{label}</p>
-        <p className="text-2xl font-bold flex items-end gap-1">
-          {payload[0].value.toLocaleString()}
-          <span className="text-sm font-medium text-slate-400 mb-1">Yolcu</span>
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
-const StatsCard = ({ title, value, subText, icon, gradient, trend }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow duration-300">
-    <div className="flex justify-between items-start mb-4 relative z-10">
-        <div className={`p-3 rounded-xl bg-gradient-to-br ${gradient} shadow-lg shadow-indigo-100 group-hover:scale-110 transition-transform duration-300`}>
-            {icon}
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-dark text-white p-2 rounded shadow-sm opacity-75" style={{fontSize: '0.85rem'}}>
+          <div className="fw-bold mb-1">{label}</div>
+          <div className="d-flex align-items-center gap-2">
+            <span className="d-inline-block rounded-circle bg-primary" style={{width: 8, height: 8}}></span>
+            <span>{payload[0].value} Yolcu</span>
+          </div>
         </div>
-        {trend && (
-            <span className={`text-xs font-bold px-2 py-1 rounded-full ${trend.includes('+') ? 'bg-emerald-100 text-emerald-700' : (trend.includes('-') ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}`}>
-                {trend}
-            </span>
-        )}
-    </div>
-
-    <div className="relative z-10">
-        <h3 className="text-3xl font-bold text-slate-800 tracking-tight">{value}</h3>
-        <p className="text-slate-400 text-xs font-bold tracking-wider mt-1 uppercase">{title}</p>
-        <p className="text-slate-500 text-xs mt-3 font-medium flex items-center gap-1.5 bg-slate-50 w-fit px-2 py-1 rounded-md">
-            <Clock size={12} /> {subText}
-        </p>
-    </div>
-
-    {/* Arkaplan Efekti */}
-    <div className={`absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-gradient-to-br ${gradient} opacity-10 rounded-full blur-2xl group-hover:opacity-20 transition-opacity duration-300`}></div>
-  </div>
-);
+      );
+    }
+    return null;
+  };
 
 export default Dashboard;

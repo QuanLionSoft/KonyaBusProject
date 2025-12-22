@@ -1,48 +1,51 @@
 import os
-import json
-import pandas as pd
 from django.core.management.base import BaseCommand
+from api.models import Hat
+
+# ml_models dosyasından demand_predictor nesnesini çağırıyoruz
+try:
+    from api.ml_models import demand_predictor
+except ImportError:
+    demand_predictor = None
 
 
 class Command(BaseCommand):
-    help = 'CSV dosyasından gerçek araç numaralarını analiz eder ve JSON olarak kaydeder.'
+    help = 'Yapay Zeka Modellerini Eğitir'
+
+    def add_arguments(self, parser):
+        # --egit parametresini sisteme tanıtıyoruz
+        parser.add_argument('--egit', action='store_true', help='Talep tahmin modellerini eğitir')
 
     def handle(self, *args, **options):
-        # Dosya yolları
-        base_path = r"C:\Users\Quantum\PycharmProjects\KonyaBusProject\veri_seti"
-        csv_path = os.path.join(base_path, "otobusdurakvaris01.csv")
-        json_path = os.path.join(base_path, "hat_arac_listesi.json")
+        # Eğer --egit parametresi varsa burası çalışır
+        if options['egit']:
+            if not demand_predictor:
+                self.stdout.write(self.style.ERROR("HATA: ml_models.py yüklenemedi veya Prophet kütüphanesi eksik."))
+                return
 
-        if not os.path.exists(csv_path):
-            self.stdout.write(self.style.ERROR(f"Dosya bulunamadı: {csv_path}"))
-            return
+            self.stdout.write(self.style.WARNING("Yapay Zeka Eğitimi Başlıyor..."))
 
-        self.stdout.write("1. CSV dosyası okunuyor (Bu biraz sürebilir)...")
+            # Veritabanındaki tüm hatları çek
+            hatlar = Hat.objects.all().order_by('ana_hat_no')
 
-        try:
-            # Sadece gerekli sütunları okuyoruz (Hız için)
-            df = pd.read_csv(csv_path, sep=';', usecols=['arac_no', 'ana_hat_no'], dtype=str)
+            if not hatlar.exists():
+                self.stdout.write(
+                    self.style.ERROR("Veritabanında kayıtlı hat bulunamadı! Önce hat verilerini yükleyin."))
+                return
 
-            # Boş verileri temizle
-            df = df.dropna()
+            basarili = 0
+            for hat in hatlar:
+                hat_no = str(hat.ana_hat_no)
+                self.stdout.write(f"Hat {hat_no} eğitiliyor...")
 
-            self.stdout.write("2. Hat başına araçlar gruplanıyor...")
+                # Eğitimi başlat
+                sonuc = demand_predictor.train_model(hat_no)
+                self.stdout.write(f"   -> {sonuc}")
 
-            # Hat ID'sine göre araçları grupla
-            # Sonuç: {'10': ['96', '696', '44', ...], '124': ['478'], ...}
-            hat_arac_map = df.groupby('ana_hat_no')['arac_no'].unique().apply(list).to_dict()
+                if "başarıyla" in str(sonuc) or "eğitildi" in str(sonuc):
+                    basarili += 1
 
-            # İstatistik
-            toplam_hat = len(hat_arac_map)
-            toplam_arac = df['arac_no'].nunique()
+            self.stdout.write(self.style.SUCCESS(f"İŞLEM TAMAMLANDI! Toplam {basarili} model güncellendi."))
 
-            self.stdout.write(f"   -> {toplam_hat} farklı hat ve {toplam_arac} farklı araç tespit edildi.")
-
-            # JSON olarak kaydet
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(hat_arac_map, f, ensure_ascii=False)
-
-            self.stdout.write(self.style.SUCCESS(f"✅ Başarılı! Veriler şuraya kaydedildi: {json_path}"))
-
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Hata oluştu: {str(e)}"))
+        else:
+            self.stdout.write("Lütfen komutu şöyle kullanın: python manage.py analiz_araclar --egit")

@@ -176,3 +176,94 @@ body {
   color: white;
   font-family: sans-serif;
 }
+/* --- HARİTA İKONLARI (Harita.jsx için) --- */
+
+/* 1. Marker Genel Kapsayıcı */
+.custom-div-icon {
+  background: transparent;
+  border: none;
+}
+
+/* 2. Otobüs İkonu */
+.bus-marker-container {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mavi/Kırmızı Pin Gövdesi */
+.marker-pin-blue, .marker-pin-red {
+  width: 40px;
+  height: 40px;
+  border-radius: 50% 50% 50% 0;
+  background: #3b82f6; /* Mavi */
+  position: absolute;
+  transform: rotate(-45deg);
+  left: 50%;
+  top: 50%;
+  margin: -15px 0 0 -15px;
+  box-shadow: 0 3px 5px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+  z-index: 2;
+}
+
+
+/* Kırmızı Pin (Ek Sefer) */
+.marker-pin-red {
+  background: #ef4444;
+}
+
+/* Animasyonlu Halka (Pulse Effect) */
+.marker-ring {
+  border: 3px solid rgba(59, 130, 246, 0.5);
+  border-radius: 50%;
+  height: 60px;
+  width: 60px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: pulsate 1.5s ease-out infinite;
+  opacity: 0;
+  z-index: 1;
+}
+
+.marker-ring.red {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+@keyframes pulsate {
+  0% { transform: scale(0.1, 0.1); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: scale(1.2, 1.2); opacity: 0; }
+}
+
+/* 3. Durak İkonu */
+.stop-marker-container {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stop-marker-pin {
+  width: 24px;
+  height: 24px;
+  background-color: #f97316; /* Turuncu */
+  color: white;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 12px;
+}
