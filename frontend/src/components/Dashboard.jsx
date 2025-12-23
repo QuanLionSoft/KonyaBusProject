@@ -48,6 +48,9 @@ const Dashboard = () => {
   useEffect(() => {
     if (!selectedLine) return;
 
+    // Cleanup flag to prevent state updates after component unmount
+    let isCancelled = false;
+
     const fetchData = async () => {
       setLoading(true);
       setError(null);
@@ -57,18 +60,30 @@ const Dashboard = () => {
         // A) Talep Tahmini
         const demandRes = await axios.get(`http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`);
 
+        if (isCancelled) return; // Don't update if component unmounted
+
         // B) Kapasite Analizi (Her periyot için çekmeye çalış)
         let capacityRes = { data: { analiz: [] } };
         try {
             capacityRes = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/`);
-        } catch (e) {
-            console.warn("Kapasite analizi çekilemedi.");
+        } catch (capacityError) {
+            console.warn("Kapasite analizi çekilemedi:", capacityError.message);
         }
+
+        if (isCancelled) return; // Don't update if component unmounted
 
         // --- Veri İşleme ---
 
         // 1. Tahmin Verisi Formatlama
         const rawPreds = demandRes.data.predictions || demandRes.data.tahminler || [];
+
+        // Veri yoksa uyarı ver
+        if (!Array.isArray(rawPreds) || rawPreds.length === 0) {
+            console.warn(`Hat ${selectedLine} için tahmin verisi boş.`);
+            setError("Seçili hat ve dönem için tahmin verisi bulunamadı. Lütfen farklı bir hat veya dönem seçin.");
+            setLoading(false);
+            return;
+        }
 
         const formattedPreds = rawPreds.map(item => {
             const dateObj = new Date(item.ds);
@@ -81,52 +96,100 @@ const Dashboard = () => {
                     month: period === 'yearly' ? 'long' : 'short',    // Yıllıkta uzun ay ismi
                     year: period === 'yearly' ? 'numeric' : undefined
                 }),
-                tahmin: Math.round(item.yhat)
+                tahmin: Math.round(item.yhat || 0)
             };
         });
-        setPredictions(formattedPreds);
+        
+        if (!isCancelled) {
+            setPredictions(formattedPreds);
+        }
 
         // 2. Kapasite Verisi
-        setCapacityData(capacityRes.data.analiz || []);
+        const capacityAnalysis = Array.isArray(capacityRes.data.analiz) ? capacityRes.data.analiz : [];
+        
+        if (!isCancelled) {
+            setCapacityData(capacityAnalysis);
+        }
 
         // 3. KPI Hesaplama
         if (formattedPreds.length > 0) {
-            const total = formattedPreds.reduce((acc, cur) => acc + cur.tahmin, 0);
-            const maxVal = Math.max(...formattedPreds.map(d => d.tahmin));
+            const total = formattedPreds.reduce((acc, cur) => acc + (cur.tahmin || 0), 0);
+            const maxVal = Math.max(...formattedPreds.map(d => d.tahmin || 0));
 
             // Risk sadece günlük modda hesaplanır
             let risky = '-';
             let avgOcc = 0;
-            if (capacityRes.data.analiz && capacityRes.data.analiz.length > 0) {
-                const risks = capacityRes.data.analiz.filter(a => a.doluluk_yuzdesi > 90);
-                if (risks.length > 0) risky = risks[0].saat;
+            if (capacityAnalysis.length > 0) {
+                const risks = capacityAnalysis.filter(a => (a.doluluk_yuzdesi || 0) > 90);
+                if (risks.length > 0) risky = risks[0].saat || '-';
 
-                const totalOcc = capacityRes.data.analiz.reduce((acc, cur) => acc + cur.doluluk_yuzdesi, 0);
-                avgOcc = Math.round(totalOcc / capacityRes.data.analiz.length);
+                const totalOcc = capacityAnalysis.reduce((acc, cur) => acc + (cur.doluluk_yuzdesi || 0), 0);
+                avgOcc = Math.round(totalOcc / capacityAnalysis.length);
             }
 
-            setStats({
-                totalDemand: total,
-                maxDemand: maxVal,
-                riskHour: risky,
-                avgOccupancy: avgOcc
-            });
+            if (!isCancelled) {
+                setStats({
+                    totalDemand: total,
+                    maxDemand: maxVal,
+                    riskHour: risky,
+                    avgOccupancy: avgOcc
+                });
+            }
         }
 
       } catch (err) {
-        console.error(err);
-        // 500 Hatası alıyorsanız Backend dosyalarınızı (views.py ve ml_models.py) kontrol edin.
-        setError("Veriler alınırken bir hata oluştu. Lütfen Backend'in çalıştığından ve modellerin doğru yüklendiğinden emin olun.");
+        console.error("Dashboard veri alma hatası:", err);
+        
+        // Daha detaylı hata mesajı
+        let errorMessage = "Veriler alınırken bir hata oluştu. ";
+        
+        if (err.response) {
+            // Backend'den hata yanıtı geldi
+            if (err.response.status === 404) {
+                errorMessage += "İstenen veri bulunamadı. Lütfen farklı bir hat seçin.";
+            } else if (err.response.status === 500) {
+                errorMessage += "Backend'te bir hata oluştu. Lütfen modellerin doğru yüklendiğinden emin olun.";
+            } else {
+                errorMessage += `Hata Kodu: ${err.response.status}`;
+            }
+        } else if (err.request) {
+            // İstek gönderildi ama yanıt alınamadı
+            errorMessage += "Backend'e bağlanılamadı. Lütfen backend'in çalıştığından emin olun.";
+        } else {
+            // İstek hazırlanırken hata oluştu
+            errorMessage += err.message || "Bilinmeyen bir hata oluştu.";
+        }
+        
+        if (!isCancelled) {
+            setError(errorMessage);
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+            setLoading(false);
+        }
       }
     };
 
     fetchData();
+    
+    // Cleanup function
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedLine, period]);
 
   // Grafik Bileşeni Seçimi
   const renderMainChart = () => {
+    // Veri yoksa boş state göster
+    if (!predictions || predictions.length === 0) {
+        return (
+            <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                <TrendingUp size={48} className="mb-2 opacity-25" />
+                <small className="text-center">Tahmin verisi yükleniyor...</small>
+            </div>
+        );
+    }
+    
     if (period === 'yearly') {
         return (
             // DÜZELTME 1: minWidth={0} eklendi
@@ -361,35 +424,43 @@ const Dashboard = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {capacityData.map((row, idx) => (
-                                    <tr key={idx}>
-                                        <td className="ps-4 fw-bold">{row.saat}</td>
-                                        <td>{row.sefer_sayisi}</td>
-                                        <td className="text-muted">{row.kapasite}</td>
-                                        <td className="fw-medium">{row.ortalama_yolcu}</td>
-                                        <td>
-                                            <div className="d-flex align-items-center">
-                                                <div className="progress flex-grow-1" style={{height: '6px'}}>
-                                                    <div
-                                                        className={`progress-bar ${row.doluluk_yuzdesi > 90 ? 'bg-danger' : (row.doluluk_yuzdesi > 70 ? 'bg-warning' : 'bg-success')}`}
-                                                        role="progressbar"
-                                                        style={{width: `${Math.min(row.doluluk_yuzdesi, 100)}%`}}
-                                                    ></div>
+                                {capacityData.map((row, idx) => {
+                                    // Güvenli veri erişimi
+                                    const doluluk = row.doluluk_yuzdesi || 0;
+                                    const seferSayisi = row.sefer_sayisi || 0;
+                                    const kapasite = row.kapasite || 0;
+                                    const yolcu = row.ortalama_yolcu || 0;
+                                    
+                                    return (
+                                        <tr key={idx}>
+                                            <td className="ps-4 fw-bold">{row.saat || '-'}</td>
+                                            <td>{seferSayisi}</td>
+                                            <td className="text-muted">{kapasite}</td>
+                                            <td className="fw-medium">{yolcu}</td>
+                                            <td>
+                                                <div className="d-flex align-items-center">
+                                                    <div className="progress flex-grow-1" style={{height: '6px'}}>
+                                                        <div
+                                                            className={`progress-bar ${doluluk > 90 ? 'bg-danger' : (doluluk > 70 ? 'bg-warning' : 'bg-success')}`}
+                                                            role="progressbar"
+                                                            style={{width: `${Math.min(doluluk, 100)}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="ms-2 small text-muted">%{doluluk}</span>
                                                 </div>
-                                                <span className="ms-2 small text-muted">%{row.doluluk_yuzdesi}</span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {row.doluluk_yuzdesi > 100 ? (
-                                                <Badge bg="danger-subtle" text="danger">Yetersiz</Badge>
-                                            ) : row.doluluk_yuzdesi > 80 ? (
-                                                <Badge bg="warning-subtle" text="warning">Yoğun</Badge>
-                                            ) : (
-                                                <Badge bg="success-subtle" text="success">Uygun</Badge>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td>
+                                                {doluluk > 100 ? (
+                                                    <Badge bg="danger-subtle" text="danger">Yetersiz</Badge>
+                                                ) : doluluk > 80 ? (
+                                                    <Badge bg="warning-subtle" text="warning">Yoğun</Badge>
+                                                ) : (
+                                                    <Badge bg="success-subtle" text="success">Uygun</Badge>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </Table>
                     </div>
