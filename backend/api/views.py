@@ -230,25 +230,29 @@ class HatViewSet(viewsets.ModelViewSet):
                         for _, row in df_hat.iterrows():
                             saat_val = row['saat_temiz']
                             if saat_val == 'nan' or not saat_val: continue
-                            liste.append({'saat': saat_val, 'tip': 'Planlı', 'alt_hat': str(hat_no), 'durum': 'Normal'})
+                            liste.append({'id': None, 'saat': saat_val, 'tip': 'Planlı', 'alt_hat': str(hat_no),
+                                          'durum': 'Normal'})
         except Exception as e:
             print(f"Tarife okuma hatası: {e}")
 
         # B) Veritabanından EK SEFERLERİ Çek
-            # B) Veritabanından EK SEFERLERİ Çek
-            try:
-                ek_seferler = EkSefer.objects.filter(hat=hat, aktif=True).order_by('kalkis_saati')
-                for ek in ek_seferler:
-                    # DEĞİŞİKLİK BURADA: 'id': ek.id kısmını ekledik. Silme işlemi için bu ID lazım.
-                    liste.append({
-                        'id': ek.id,
-                        'saat': ek.kalkis_saati.strftime('%H:%M'),
-                        'tip': 'Ek Sefer',
-                        'alt_hat': f"{ek.arac_no}",
-                        'durum': 'Planlandı'
-                    })
-            except Exception as e:
-                print(f"Ek sefer okuma hatası: {e}")
+        try:
+            ek_seferler = EkSefer.objects.filter(hat=hat, aktif=True).order_by('kalkis_saati')
+            for ek in ek_seferler:
+                liste.append({
+                    'id': ek.id,
+                    'saat': ek.kalkis_saati.strftime('%H:%M'),
+                    'tip': 'Ek Sefer',
+                    'alt_hat': f"{ek.arac_no}",
+                    'durum': 'Planlandı'
+                })
+        except Exception as e:
+            print(f"Ek sefer okuma hatası: {e}")
+
+        liste.sort(key=lambda x: x['saat'])
+
+        # --- HATA ÇÖZÜMÜ: BU SATIR EKSİKTİ ---
+        return Response(liste)
 
     # ---------------------------------------------------------
     # 4. YÖNETİM: EK SEFER OLUŞTURMA
@@ -277,7 +281,7 @@ class HatViewSet(viewsets.ModelViewSet):
             return Response({"error": f"Bir hata oluştu: {str(e)}"}, status=500)
 
     # ---------------------------------------------------------
-    # 5. YÖNETİM: EK SEFER SİLME (YENİ EKLENDİ)
+    # 5. YÖNETİM: EK SEFER SİLME (YENİ)
     # ---------------------------------------------------------
     @action(detail=True, methods=['post'])
     def ek_sefer_sil(self, request, pk=None):
@@ -289,7 +293,7 @@ class HatViewSet(viewsets.ModelViewSet):
             return Response({"error": "Sefer ID'si bulunamadı."}, status=400)
 
         try:
-            # Sadece bu hatta ait seferi sil (Güvenlik için hat_id=pk kontrolü)
+            # Sadece bu hatta ait seferi sil (Güvenlik için)
             sefer = EkSefer.objects.get(id=ek_sefer_id, hat_id=pk)
             sefer.delete()
             return Response({"status": "Başarılı", "mesaj": "Ek sefer kaldırıldı."})
@@ -297,6 +301,8 @@ class HatViewSet(viewsets.ModelViewSet):
             return Response({"error": "Sefer bulunamadı veya zaten silinmiş."}, status=404)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+
+
 # =============================================================================
 # 2. DURAK VE TALEP YÖNETİMİ
 # =============================================================================
@@ -317,54 +323,70 @@ class CapacityAnalysisView(APIView):
     def get(self, request, hat_no):
         try:
             hat_no = str(hat_no).strip()
-            OTOBUS_KAPASITESI = 60
+            period = request.query_params.get('period', 'daily')
+            OTOBUS_KAPASITESI = 80
 
-            # 1. ARZ (Sefer Sayıları)
-            df_tarife = get_tarife_dataframe()
+            # Periyot Çarpanı
+            carpan = 0.5
+            if period == 'weekly': carpan = 7
+            elif period == 'monthly': carpan = 30
+            elif period == 'yearly': carpan = 365
+
+            # 1. ARZ - PLANLI (CSV)
             sefer_sayilari = {}
-
+            df_tarife = get_tarife_dataframe()
             if df_tarife is not None:
                 hat_col = next((c for c in df_tarife.columns if 'HAT' in c and 'NO' in c), None)
                 saat_col = next((c for c in df_tarife.columns if 'SAAT' in c), None)
-
                 if hat_col and saat_col:
                     df_tarife['hat_str'] = df_tarife[hat_col].astype(str).str.split('.').str[0].str.strip()
                     df_hat = df_tarife[df_tarife['hat_str'] == hat_no].copy()
+                    df_hat['saat'] = df_hat[saat_col].apply(parse_time_column)
+                    sefer_sayilari = df_hat[df_hat['saat'] >= 0].groupby('saat').size().to_dict()
 
-                    df_hat['saat_dilimi'] = df_hat[saat_col].apply(parse_time_column)
-                    sefer_sayilari = df_hat[df_hat['saat_dilimi'] >= 0].groupby('saat_dilimi').size().to_dict()
+            # --- EKLENEN KISIM: EK SEFERLERİ DE SAY (DB) ---
+            try:
+                # Veritabanında bu numaraya sahip hattı bul
+                hat_obj = Hat.objects.filter(ana_hat_no=hat_no).first()
+                if hat_obj:
+                    ek_seferler = EkSefer.objects.filter(hat=hat_obj, aktif=True)
+                    for ek in ek_seferler:
+                        s = ek.kalkis_saati.hour
+                        # Planlı seferlerin üzerine ekle
+                        sefer_sayilari[s] = sefer_sayilari.get(s, 0) + 1
+            except Exception as e:
+                print(f"Ek sefer hatası: {e}")
+            # ------------------------------------------------
 
             # 2. TALEP (Elkart)
             df_elkart = get_elkart_data(hat_no)
             talep_ort = {}
             if not df_elkart.empty:
-                # DÜZELTME: saat sütunundan saat_dilimi oluştur
-                df_elkart['saat_dilimi'] = df_elkart['saat'].apply(parse_time_column)
+                df_elkart['saat'] = df_elkart['saat'].apply(parse_time_column)
+                valid = df_elkart[(df_elkart['saat'] >= 0) & (df_elkart['saat'] <= 23)]
+                talep_ort = (valid.groupby('saat')['yolcu'].sum() / 365).to_dict()
 
-                # Sadece geçerli saatleri al (0-23 arası)
-                df_elkart = df_elkart[(df_elkart['saat_dilimi'] >= 0) & (df_elkart['saat_dilimi'] <= 23)]
-
-                saatlik_sum = df_elkart.groupby('saat_dilimi')['yolcu'].sum()
-                # 365 güne bölerek ortalama alıyoruz
-                talep_ort = (saatlik_sum / 365).to_dict()
-
-            # 3. BİRLEŞTİRME (6-24 arası)
+            # 3. BİRLEŞTİRME
             sonuc = []
             for saat in range(6, 24):
-                sefer = sefer_sayilari.get(saat, 0)
-                yolcu = round(talep_ort.get(saat, 0))
-                kapasite = sefer * OTOBUS_KAPASITESI
+                gunluk_sefer = sefer_sayilari.get(saat, 0)
+                gunluk_yolcu = talep_ort.get(saat, 0)
+
+                # Çarpan Uygula
+                toplam_sefer = int(gunluk_sefer * carpan)
+                toplam_yolcu = int(round(gunluk_yolcu * carpan))
+                kapasite = toplam_sefer * OTOBUS_KAPASITESI
 
                 doluluk = 0
                 if kapasite > 0:
-                    doluluk = round((yolcu / kapasite) * 100)
-                elif yolcu > 0:
-                    doluluk = 100  # Sefer yok ama yolcu var
+                    doluluk = round((toplam_yolcu / kapasite) * 100)
+                elif toplam_yolcu > 0:
+                    doluluk = 100
 
                 sonuc.append({
                     "saat": f"{saat:02d}:00",
-                    "ortalama_yolcu": yolcu,
-                    "sefer_sayisi": sefer,
+                    "ortalama_yolcu": toplam_yolcu,
+                    "sefer_sayisi": toplam_sefer,
                     "kapasite": kapasite,
                     "doluluk_yuzdesi": doluluk
                 })
@@ -373,7 +395,6 @@ class CapacityAnalysisView(APIView):
 
         except Exception as e:
             print(f"Kapasite Hatası: {e}")
-            # Hata olsa bile boş liste dön ki frontend çökmesin
             return Response({"hat_no": hat_no, "analiz": []})
 
 

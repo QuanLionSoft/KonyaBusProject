@@ -48,10 +48,6 @@ const HatYonetimi = () => {
       h.ana_hat_adi.toLowerCase().includes(term)
     );
     setFilteredHatlar(filtered);
-    // Eğer arama sonucu tek bir hat kaldıysa onu seç
-    if (filtered.length === 1 && filtered[0].id !== selectedHat?.id) {
-       // setSelectedHat(filtered[0]); // Opsiyonel: Otomatik seçim
-    }
   }, [searchTerm, hatlar]);
 
   // 2. Detayları Çek
@@ -218,12 +214,16 @@ const HatYonetimi = () => {
                                  </div>
                               </div>
 
-                              {/* Bilgi */}
+                              {/* Bilgi - DÜZELTME BURADA */}
                               <div className="bg-light p-2 rounded w-100 border-start border-2 border-primary-subtle">
-                                 <div className="fw-bold text-dark">{d.durak.durak_adi}</div>
+                                 <div className="fw-bold text-dark">{d.durak?.durak_adi || 'Bilinmeyen Durak'}</div>
                                  <div className="d-flex justify-content-between small text-muted">
-                                    <span>No: {d.durak.durak_no}</span>
-                                    <span>{d.durak.enlem?.toFixed(4)}, {d.durak.boylam?.toFixed(4)}</span>
+                                    <span>No: {d.durak?.durak_no}</span>
+                                    <span>
+                                        {/* toFixed hatasını önlemek için Number() dönüşümü yapıldı */}
+                                        {d.durak?.enlem ? Number(d.durak.enlem).toFixed(4) : '-'},
+                                        {d.durak?.boylam ? Number(d.durak.boylam).toFixed(4) : '-'}
+                                    </span>
                                  </div>
                               </div>
                            </div>

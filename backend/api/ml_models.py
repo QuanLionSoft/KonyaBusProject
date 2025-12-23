@@ -141,7 +141,7 @@ class DemandPredictor:
         self.scalers = {}
 
     def train_model(self, hat_no):
-        """Prophet modelini eğitir."""
+        """Prophet modelini 'Gerçekçi Döngüler' üretecek şekilde eğitir."""
         if Prophet is None: return False
 
         df = self._read_all_data(hat_no)
@@ -149,29 +149,34 @@ class DemandPredictor:
 
         print(f"[ML] Hat {hat_no} için {len(df)} satır veri ile eğitim başlıyor...")
 
-        # Saatlik Toplamlar
+        # 2. Aggregation
         df_agg = df.groupby('ds')['y'].sum().reset_index().sort_values('ds')
-
-        # Eksik saatleri doldur (0 yolcu olarak)
         df_agg = df_agg.set_index('ds').resample('H').sum().fillna(0).reset_index()
 
         try:
-            # Model Ayarları
+            # --- GERÇEKÇİLİK AYARLARI ---
             model_p = Prophet(
-                daily_seasonality=True,
-                weekly_seasonality=True,
+                daily_seasonality=True,  # Günlük döngüyü (Sabah/Akşam pikleri) zorla
+                weekly_seasonality=True,  # Haftalık döngüyü (Hafta sonu düşüşü) zorla
                 yearly_seasonality=True,
-                changepoint_prior_scale=0.05  # Trend değişimlerine karşı esneklik
+                # changepoint_prior_scale=0.001: Trendi çok katı yapar.
+                # Yani veri eski olsa bile 1 yıl sonrasına "düşüş" veya "yükseliş" abartılı yansımaz.
+                changepoint_prior_scale=0.001,
+                # seasonality_prior_scale=10.0: Saatlik dalgalanmaları (sabah yoğunluğu vb.) belirginleştirir.
+                seasonality_prior_scale=10.0
             )
+
+            # Negatif tahminleri engellemek için 'logistic' büyüme kullanılabilir ama
+            # basitlik adına trendi sabitledik.
+
             model_p.add_country_holidays(country_name='TR')
             model_p.fit(df_agg)
 
-            # Kaydet
             path = os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl')
             joblib.dump(model_p, path)
             self.models_prophet[str(hat_no)] = model_p
 
-            print(f"[ML] Model eğitildi: {path}")
+            print(f"[ML] Model eğitildi (Realistic Mode): {path}")
             return True
         except Exception as e:
             print(f"[ML] Eğitim hatası: {e}")

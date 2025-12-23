@@ -20,11 +20,14 @@ const Dashboard = () => {
   const [period, setPeriod] = useState('daily');
   const [activeTab, setActiveTab] = useState('charts');
 
-  // Grafikler için ayrı state'ler
-  const [predictions, setPredictions] = useState([]); // Sol Grafik (Prophet)
-  const [capacityData, setCapacityData] = useState([]); // Sağ Grafik (Doluluk)
+  // VERİ STATE'LERİ
+  const [predictions, setPredictions] = useState([]);
+  const [capacityData, setCapacityData] = useState([]);
 
-  const [loading, setLoading] = useState(false);
+  // AYRI LOADING STATE'LERİ (EŞ ZAMANLI HİSSİYAT İÇİN)
+  const [loadingProphet, setLoadingProphet] = useState(false);
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
+
   const [error, setError] = useState(null);
 
   const [stats, setStats] = useState({
@@ -41,88 +44,77 @@ const Dashboard = () => {
       .catch(err => console.error("Hatlar alınamadı:", err));
   }, []);
 
-  // 2. Seçili Hat İçin Verileri Çek
+  // 2. Seçili Hat Değişince Verileri Çek (PARALEL ÇALIŞMA)
   useEffect(() => {
     if (!selectedLine) return;
 
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
-      // State'leri sıfırla ki eski veri gözükmesin
-      setPredictions([]);
-      setCapacityData([]);
-
-      try {
-        console.log(`[Dashboard] Veri isteniyor: Hat ${selectedLine}, Periyot ${period}`);
-
-        // A) YOLCU TALEP TAHMİNİ (PROPHET)
-        const demandRes = await axios.get(`http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`);
-        console.log("[Dashboard] Prophet Ham Veri:", demandRes.data);
-
-        // B) KAPASİTE ANALİZİ (DOLULUK)
-        let capRes = { data: { analiz: [] } };
+    // --- A) KAPASİTE VERİSİNİ ÇEK (HIZLI) ---
+    const fetchCapacity = async () => {
+        setLoadingCapacity(true);
+        setCapacityData([]);
         try {
-            capRes = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/`);
-            console.log("[Dashboard] Kapasite Ham Veri:", capRes.data);
-        } catch(e) {
-            console.warn("Kapasite servisi yanıt vermedi.");
+            // DEĞİŞİKLİK BURADA: Sonuna /?period=${period} eklendi.
+            const res = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/?period=${period}`);
+            setCapacityData(res.data.analiz || []);
+        } catch (e) {
+            console.warn("Kapasite verisi alınamadı.");
+        } finally {
+            setLoadingCapacity(false);
         }
-
-        // --- VERİ İŞLEME (PROPHET) ---
-        const rawPreds = demandRes.data.predictions || [];
-        const processedPreds = rawPreds.map(item => {
-            // Tarih formatlama
-            const dateObj = new Date(item.ds);
-            return {
-                rawDate: item.ds,
-                // Grafikte görünecek tarih formatı
-                displayDate: dateObj.toLocaleDateString('tr-TR', {
-                    hour: period === 'daily' ? '2-digit' : undefined,
-                    day: 'numeric',
-                    month: 'short',
-                    year: period === 'yearly' ? 'numeric' : undefined
-                }) + (period === 'daily' ? ` ${dateObj.getHours()}:00` : ''),
-                saat: dateObj.getHours(),
-                tahmin: Math.max(0, Math.round(item.yhat)) // Eksi değerleri 0 yap
-            };
-        });
-
-        // --- VERİ İŞLEME (KAPASİTE) ---
-        const processedCap = capRes.data.analiz || [];
-
-        // State'leri güncelle
-        setPredictions(processedPreds);
-        setCapacityData(processedCap);
-
-        // --- İSTATİSTİKLER ---
-        if (processedPreds.length > 0) {
-            const total = processedPreds.reduce((a, b) => a + b.tahmin, 0);
-            const maxVal = Math.max(...processedPreds.map(d => d.tahmin));
-
-            let risky = '-';
-            let avgOcc = 0;
-
-            if (processedCap.length > 0) {
-                const risks = processedCap.filter(a => a.doluluk_yuzdesi > 90);
-                if (risks.length > 0) risky = risks[0].saat;
-                const totalOcc = processedCap.reduce((a, b) => a + b.doluluk_yuzdesi, 0);
-                avgOcc = Math.round(totalOcc / processedCap.length);
-            }
-            setStats({ totalDemand: total, maxDemand: maxVal, riskHour: risky, avgOccupancy: avgOcc });
-        } else {
-             setStats({ totalDemand: 0, maxDemand: 0, riskHour: '-', avgOccupancy: 0 });
-        }
-
-      } catch (err) {
-        console.error("Dashboard Hatası:", err);
-        setError("Veriler alınırken bir hata oluştu. Lütfen Backend'in çalıştığından emin olun.");
-      } finally {
-        setLoading(false);
-      }
     };
 
-    fetchData();
+    // --- B) PROPHET VERİSİNİ ÇEK (YAVAŞ) ---
+    const fetchProphet = async () => {
+        setLoadingProphet(true);
+        setPredictions([]);
+        setError(null);
+        try {
+            const res = await axios.get(`http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`);
+
+            const processed = (res.data.predictions || []).map(item => {
+                const dateObj = new Date(item.ds);
+                return {
+                    fullDate: item.ds,
+                    displayDate: dateObj.toLocaleDateString('tr-TR', {
+                        day: 'numeric', month: 'short',
+                        hour: period === 'daily' ? '2-digit' : undefined
+                    }) + (period === 'daily' ? ` ${dateObj.getHours()}:00` : ''),
+                    tahmin: Math.max(0, Math.round(item.yhat))
+                };
+            });
+            setPredictions(processed);
+        } catch (e) {
+            console.error("Prophet hatası:", e);
+            setError("Tahmin verisi oluşturulamadı.");
+        } finally {
+            setLoadingProphet(false);
+        }
+    };
+
+    // İkisini de başlat
+    fetchCapacity();
+    fetchProphet();
+
   }, [selectedLine, period]);
+
+  // İstatistikleri Güncelle (Her iki veri de değiştikçe)
+  useEffect(() => {
+    let total = 0, maxVal = 0, risky = '-', avgOcc = 0;
+
+    if (predictions.length > 0) {
+        total = predictions.reduce((a, b) => a + b.tahmin, 0);
+        maxVal = Math.max(...predictions.map(d => d.tahmin));
+    }
+
+    if (capacityData.length > 0) {
+        const risks = capacityData.filter(a => a.doluluk_yuzdesi > 90);
+        if (risks.length > 0) risky = risks[0].saat;
+        const totalOcc = capacityData.reduce((a, b) => a + b.doluluk_yuzdesi, 0);
+        avgOcc = Math.round(totalOcc / capacityData.length);
+    }
+
+    setStats({ totalDemand: total, maxDemand: maxVal, riskHour: risky, avgOccupancy: avgOcc });
+  }, [predictions, capacityData]);
 
   return (
     <Container fluid className="py-4 bg-light min-vh-100">
@@ -184,31 +176,27 @@ const Dashboard = () => {
       </Row>
 
       {/* ANA İÇERİK */}
-      {loading ? (
-         <div className="text-center py-5">
-             <Spinner animation="border" variant="primary" style={{width: '3rem', height:'3rem'}} />
-             <p className="mt-3 text-muted">Yapay Zeka Modelleri Çalışıyor...</p>
-         </div>
-      ) : error ? (
-         <Alert variant="danger">{error}</Alert>
-      ) : (
-        <Tabs
-            activeKey={activeTab}
-            onSelect={(k) => setActiveTab(k)}
-            className="mb-4 border-bottom-0"
-        >
+      <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4 border-bottom-0">
             <Tab eventKey="charts" title={<><Activity size={18} className="me-2"/>Grafik Analizi</>}>
                 <Row className="g-4">
+
                     {/* --- SOL GRAFİK: PROPHET TAHMİNİ --- */}
                     <Col lg={8}>
                         <Card className="h-100 border-0 shadow-sm">
                             <Card.Header className="bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
                                 <h5 className="m-0 fw-bold text-primary">Yolcu Talep Tahmini (Gelecek)</h5>
-                                <Badge bg="primary">Prophet AI</Badge>
+                                {loadingProphet && <Spinner animation="border" size="sm" variant="primary"/>}
                             </Card.Header>
                             <Card.Body>
                                 <div style={{height: '400px', width: '100%'}}>
-                                    {predictions.length > 0 ? (
+                                    {loadingProphet ? (
+                                        <div className="h-100 d-flex flex-column align-items-center justify-content-center text-muted">
+                                            <Spinner animation="grow" variant="primary" />
+                                            <p className="mt-3">Yapay Zeka Hesaplanıyor...</p>
+                                        </div>
+                                    ) : error ? (
+                                        <Alert variant="danger">{error}</Alert>
+                                    ) : predictions.length > 0 ? (
                                         <ResponsiveContainer>
                                             <AreaChart data={predictions} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                                                 <defs>
@@ -220,25 +208,12 @@ const Dashboard = () => {
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0"/>
                                                 <XAxis dataKey="displayDate" tick={{fontSize: 12}} />
                                                 <YAxis tick={{fontSize: 12}} />
-                                                <Tooltip
-                                                    contentStyle={{backgroundColor: '#fff', borderRadius: '10px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}
-                                                />
-                                                <Area
-                                                    type="monotone"
-                                                    dataKey="tahmin"
-                                                    stroke="#0d6efd"
-                                                    strokeWidth={3}
-                                                    fill="url(#colorY)"
-                                                    name="Tahmini Yolcu"
-                                                    animationDuration={1500}
-                                                />
+                                                <Tooltip contentStyle={{borderRadius: '10px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}/>
+                                                <Area type="monotone" dataKey="tahmin" stroke="#0d6efd" strokeWidth={3} fill="url(#colorY)" />
                                             </AreaChart>
                                         </ResponsiveContainer>
                                     ) : (
-                                        <div className="h-100 d-flex flex-column align-items-center justify-content-center text-muted">
-                                            <AlertTriangle size={48} className="mb-3 text-warning"/>
-                                            <p>Bu hat veya dönem için tahmin verisi oluşturulamadı.</p>
-                                        </div>
+                                        <div className="h-100 d-flex align-items-center justify-content-center text-muted">Veri Yok</div>
                                     )}
                                 </div>
                             </Card.Body>
@@ -250,30 +225,27 @@ const Dashboard = () => {
                         <Card className="h-100 border-0 shadow-sm">
                             <Card.Header className="bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
                                 <h5 className="m-0 fw-bold text-info">Anlık Kapasite Durumu</h5>
-                                <Badge bg="info">Gerçek Zamanlı</Badge>
+                                {loadingCapacity && <Spinner animation="border" size="sm" variant="info"/>}
                             </Card.Header>
                             <Card.Body>
                                 <div style={{height: '400px', width: '100%'}}>
-                                    {capacityData.length > 0 ? (
+                                    {loadingCapacity ? (
+                                        <div className="h-100 d-flex align-items-center justify-content-center text-muted">
+                                            <Spinner animation="border" size="sm" className="me-2"/> Yükleniyor...
+                                        </div>
+                                    ) : capacityData.length > 0 ? (
                                         <ResponsiveContainer>
                                             <ComposedChart data={capacityData} layout="vertical" margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
                                                 <CartesianGrid horizontal={false} stroke="#f0f0f0"/>
                                                 <XAxis type="number" hide />
                                                 <YAxis dataKey="saat" type="category" scale="band" width={45} tick={{fontSize: 12, fontWeight: 'bold'}}/>
-                                                <Tooltip cursor={{fill: 'transparent'}} />
-                                                <Legend verticalAlign="top" wrapperStyle={{paddingBottom: '10px'}}/>
-
-                                                {/* Kapasite (Arkaplan Bar) */}
+                                                <Tooltip />
                                                 <Bar dataKey="kapasite" fill="#e9ecef" barSize={20} radius={[0,10,10,0]} name="Kapasite" />
-
-                                                {/* Tahmini Yolcu (Ön Bar) */}
                                                 <Bar dataKey="ortalama_yolcu" fill="#0dcaf0" barSize={12} radius={[0,10,10,0]} name="Yolcu" />
                                             </ComposedChart>
                                         </ResponsiveContainer>
                                     ) : (
-                                        <div className="h-100 d-flex flex-column align-items-center justify-content-center text-muted">
-                                            <p>Sefer veya tarife verisi bulunamadı.</p>
-                                        </div>
+                                        <div className="h-100 d-flex align-items-center justify-content-center text-muted">Veri Yok</div>
                                     )}
                                 </div>
                             </Card.Body>
@@ -292,10 +264,7 @@ const Dashboard = () => {
                                     <thead><tr><th>Tarih</th><th>Tahmini Yolcu</th></tr></thead>
                                     <tbody>
                                         {predictions.map((p, i) => (
-                                            <tr key={i}>
-                                                <td>{p.displayDate}</td>
-                                                <td className="fw-bold text-primary">{p.tahmin}</td>
-                                            </tr>
+                                            <tr key={i}><td>{p.displayDate}</td><td className="fw-bold text-primary">{p.tahmin}</td></tr>
                                         ))}
                                     </tbody>
                                 </Table>
@@ -335,13 +304,11 @@ const Dashboard = () => {
                     </Col>
                 </Row>
             </Tab>
-        </Tabs>
-      )}
+      </Tabs>
     </Container>
   );
 };
 
-// Basit KPI Kart Bileşeni
 const KpiCard = ({ title, val, icon, color }) => (
     <Card className={`border-0 shadow-sm h-100 border-start border-4 border-${color}`}>
         <Card.Body>
