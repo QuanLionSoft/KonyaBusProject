@@ -40,11 +40,28 @@ def normalize_cols(cols):
     """Sütun isimlerini temizler."""
     return [
         str(c).strip().upper()
-        .replace('İ', 'I').replace('Ğ', 'G').replace('Ü', 'U')
-        .replace('Ş', 'S').replace('Ö', 'O').replace('Ç', 'C')
-        .replace(' ', '_').replace('\n', '')
+            .replace('İ', 'I').replace('Ğ', 'G').replace('Ü', 'U')
+            .replace('Ş', 'S').replace('Ö', 'O').replace('Ç', 'C')
+            .replace(' ', '_').replace('\n', '')
         for c in cols
     ]
+
+
+def parse_time_column(val):
+    """
+    Farklı saat formatlarını (06:00, 6, 06.00, 6.0) integer saate çevirir.
+    Hata durumunda -1 döner.
+    """
+    try:
+        s = str(val).strip()
+        if ':' in s:
+            return int(s.split(':')[0])
+        elif '.' in s:  # 06.30 veya 6.0 formatı için
+            return int(s.split('.')[0])
+        else:
+            return int(float(s))  # "6" veya "6.0" gelebilir
+    except:
+        return -1
 
 
 def get_elkart_data(hat_no):
@@ -63,13 +80,8 @@ def get_elkart_data(hat_no):
     dosyalar.sort(reverse=True)
     df_list = []
 
-    # --- DÜZELTME BAŞLANGICI ---
     # Hat numarası "4-A" gibi string gelebilir, int() zorlaması patlatır.
-    try:
-        hat_no_int = int(hat_no)
-    except:
-        hat_no_int = str(hat_no)
-    # --- DÜZELTME BİTİŞİ ---
+    hat_no_str = str(hat_no).strip()
 
     print(f"Hat {hat_no} için {len(dosyalar)} adet Elkart dosyası taranıyor...")
 
@@ -89,7 +101,10 @@ def get_elkart_data(hat_no):
                 saat_col = next((c for c in chunk.columns if 'SAAT' in c), None)
 
                 if hat_col and yolcu_col and saat_col:
-                    filtered = chunk[chunk[hat_col] == hat_no_int].copy()
+                    # Hat numarasını stringe çevirip karşılaştır
+                    chunk[hat_col] = chunk[hat_col].astype(str).str.strip()
+                    filtered = chunk[chunk[hat_col] == hat_no_str].copy()
+
                     if not filtered.empty:
                         filtered = filtered.rename(columns={yolcu_col: 'yolcu', saat_col: 'saat'})
                         filtered['yolcu'] = pd.to_numeric(filtered['yolcu'], errors='coerce').fillna(1)
@@ -101,6 +116,7 @@ def get_elkart_data(hat_no):
         return pd.DataFrame()
 
     return pd.concat(df_list, ignore_index=True)
+
 
 def get_tarife_dataframe():
     """
@@ -219,16 +235,20 @@ class HatViewSet(viewsets.ModelViewSet):
             print(f"Tarife okuma hatası: {e}")
 
         # B) Veritabanından EK SEFERLERİ Çek
-        try:
-            ek_seferler = EkSefer.objects.filter(hat=hat, aktif=True).order_by('kalkis_saati')
-            for ek in ek_seferler:
-                liste.append({'saat': ek.kalkis_saati.strftime('%H:%M'), 'tip': 'Ek Sefer', 'alt_hat': f"{ek.arac_no}",
-                              'durum': 'Planlandı'})
-        except Exception as e:
-            print(f"Ek sefer okuma hatası: {e}")
-
-        liste.sort(key=lambda x: x['saat'])
-        return Response(liste)
+            # B) Veritabanından EK SEFERLERİ Çek
+            try:
+                ek_seferler = EkSefer.objects.filter(hat=hat, aktif=True).order_by('kalkis_saati')
+                for ek in ek_seferler:
+                    # DEĞİŞİKLİK BURADA: 'id': ek.id kısmını ekledik. Silme işlemi için bu ID lazım.
+                    liste.append({
+                        'id': ek.id,
+                        'saat': ek.kalkis_saati.strftime('%H:%M'),
+                        'tip': 'Ek Sefer',
+                        'alt_hat': f"{ek.arac_no}",
+                        'durum': 'Planlandı'
+                    })
+            except Exception as e:
+                print(f"Ek sefer okuma hatası: {e}")
 
     # ---------------------------------------------------------
     # 4. YÖNETİM: EK SEFER OLUŞTURMA
@@ -256,7 +276,27 @@ class HatViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": f"Bir hata oluştu: {str(e)}"}, status=500)
 
+    # ---------------------------------------------------------
+    # 5. YÖNETİM: EK SEFER SİLME (YENİ EKLENDİ)
+    # ---------------------------------------------------------
+    @action(detail=True, methods=['post'])
+    def ek_sefer_sil(self, request, pk=None):
+        """
+        Belirtilen ID'ye sahip ek seferi veritabanından siler.
+        """
+        ek_sefer_id = request.data.get('ek_sefer_id')
+        if not ek_sefer_id:
+            return Response({"error": "Sefer ID'si bulunamadı."}, status=400)
 
+        try:
+            # Sadece bu hatta ait seferi sil (Güvenlik için hat_id=pk kontrolü)
+            sefer = EkSefer.objects.get(id=ek_sefer_id, hat_id=pk)
+            sefer.delete()
+            return Response({"status": "Başarılı", "mesaj": "Ek sefer kaldırıldı."})
+        except EkSefer.DoesNotExist:
+            return Response({"error": "Sefer bulunamadı veya zaten silinmiş."}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 # =============================================================================
 # 2. DURAK VE TALEP YÖNETİMİ
 # =============================================================================
@@ -277,7 +317,7 @@ class CapacityAnalysisView(APIView):
     def get(self, request, hat_no):
         try:
             hat_no = str(hat_no).strip()
-            OTOBUS_KAPASITESI = 80
+            OTOBUS_KAPASITESI = 60
 
             # 1. ARZ (Sefer Sayıları)
             df_tarife = get_tarife_dataframe()
@@ -291,46 +331,35 @@ class CapacityAnalysisView(APIView):
                     df_tarife['hat_str'] = df_tarife[hat_col].astype(str).str.split('.').str[0].str.strip()
                     df_hat = df_tarife[df_tarife['hat_str'] == hat_no].copy()
 
-                    df_hat['saat_dilimi'] = df_hat[saat_col].astype(str).apply(
-                        lambda x: int(x.split(':')[0]) if ':' in str(x) else -1
-                    )
+                    df_hat['saat_dilimi'] = df_hat[saat_col].apply(parse_time_column)
                     sefer_sayilari = df_hat[df_hat['saat_dilimi'] >= 0].groupby('saat_dilimi').size().to_dict()
 
-            # 2. TALEP (Elkart Verileri - Yeni Fonksiyon İle)
-            df_talep = get_elkart_data(hat_no)
+            # 2. TALEP (Elkart)
+            df_elkart = get_elkart_data(hat_no)
             talep_ort = {}
+            if not df_elkart.empty:
+                # DÜZELTME: saat sütunundan saat_dilimi oluştur
+                df_elkart['saat_dilimi'] = df_elkart['saat'].apply(parse_time_column)
 
-            if not df_talep.empty:
-                # Saati al (08:45 -> 8)
-                df_talep['saat_dilimi'] = df_talep['saat'].astype(str).apply(
-                    lambda x: int(x.split(':')[0]) if ':' in str(x) else 0
-                )
+                # Sadece geçerli saatleri al (0-23 arası)
+                df_elkart = df_elkart[(df_elkart['saat_dilimi'] >= 0) & (df_elkart['saat_dilimi'] <= 23)]
 
-                # Saatlik Toplam Biniş
-                saatlik_toplam = df_talep.groupby('saat_dilimi')['yolcu'].sum()
+                saatlik_sum = df_elkart.groupby('saat_dilimi')['yolcu'].sum()
+                # 365 güne bölerek ortalama alıyoruz
+                talep_ort = (saatlik_sum / 365).to_dict()
 
-                # Günlük Ortalama Hesabı:
-                # Toplam binişi veri setindeki tahmini gün sayısına bölüyoruz (örn: 1 yıl için 365)
-                # Veri setinizin büyüklüğüne göre bu sayıyı artırabilirsiniz (örn: 2 yılsa 730)
-                gun_sayisi = 365
-                talep_ort = (saatlik_toplam / gun_sayisi).to_dict()
-            else:
-                print(f"UYARI: Hat {hat_no} için elkart verisi okunamadı.")
-
-            # 3. BİRLEŞTİRME
+            # 3. BİRLEŞTİRME (6-24 arası)
             sonuc = []
             for saat in range(6, 24):
                 sefer = sefer_sayilari.get(saat, 0)
                 yolcu = round(talep_ort.get(saat, 0))
-
-                # Grafik hatasını önlemek için: Sefer yoksa ama yolcu varsa yapay 1 sefer göster (veya 0)
                 kapasite = sefer * OTOBUS_KAPASITESI
 
                 doluluk = 0
                 if kapasite > 0:
                     doluluk = round((yolcu / kapasite) * 100)
                 elif yolcu > 0:
-                    doluluk = 100
+                    doluluk = 100  # Sefer yok ama yolcu var
 
                 sonuc.append({
                     "saat": f"{saat:02d}:00",
@@ -343,13 +372,14 @@ class CapacityAnalysisView(APIView):
             return Response({"hat_no": hat_no, "analiz": sonuc})
 
         except Exception as e:
-            print(f"Kapasite Analiz Hatası: {str(e)}")
-            return Response({"error": str(e)}, status=500)
+            print(f"Kapasite Hatası: {e}")
+            # Hata olsa bile boş liste dön ki frontend çökmesin
+            return Response({"hat_no": hat_no, "analiz": []})
+
 
 # =============================================================================
 # 4. YAPAY ZEKA TAHMİN VIEW'LARI
 # =============================================================================
-# backend/api/views.py dosyasında PredictDemandView sınıfını bulun ve şu şekilde güncelleyin:
 class PredictDemandView(APIView):
     def get(self, request, hat_no):
         if not demand_predictor:
@@ -357,15 +387,13 @@ class PredictDemandView(APIView):
 
         period = request.query_params.get('period', 'daily')
 
-        # --- DÜZELTME BAŞLANGICI ---
         # 1 Yıl yerine 5 Yıllık veri iste (43.800 Saat)
         agg_map = {
             'daily': (24, 'hour'),
             'weekly': (168, 'day'),
             'monthly': (720, 'day'),
-            'yearly': (8760 , 'month')  # BURASI DÜZELTİLDİ: 5 YIL
+            'yearly': (8760, 'month')
         }
-        # --- DÜZELTME BİTİŞİ ---
 
         hours, agg = agg_map.get(period, (24, 'hour'))
 
@@ -417,13 +445,10 @@ class PredictTravelTimeView(APIView):
 # =============================================================================
 # 5. GERÇEK ZAMANLI ARAÇ TAKİBİ (HARİTA İÇİN)
 # =============================================================================
-# backend/api/views.py
-
 @api_view(['GET'])
 def aktif_otobusler(request):
     """
     Tarifeye göre araçları yürütür ve bir sonraki durağın GERÇEK İSMİNİ hesaplar.
-    FIX: ID çakışmasını önlemek için benzersiz index eklenmiştir.
     """
     hat_id = request.GET.get('hat_id')
     if not hat_id: return Response([])
@@ -478,7 +503,6 @@ def aktif_otobusler(request):
             sefer_listesi.append({'zaman': kalkis, 'tip': 'ek', 'kod': f"EK-{ek.arac_no}", 'arac': ek.arac_no})
 
         # 3. Konum ve Hedef Durak Hesapla
-        # "enumerate" kullanarak her sefere benzersiz bir sıra numarası (i) veriyoruz.
         for i, sefer in enumerate(sefer_listesi):
             gecen_sn = (simdi - sefer['zaman']).total_seconds()
 
@@ -517,6 +541,7 @@ def aktif_otobusler(request):
     except Exception as e:
         print(f"Aktif araç hatası: {e}")
         return Response([])
+
 
 class DetayliAnalizView(APIView):
     def get(self, request, hat_no): return Response({"message": "Detay Analiz Yakında..."})
