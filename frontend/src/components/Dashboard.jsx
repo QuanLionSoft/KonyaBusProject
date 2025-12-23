@@ -80,8 +80,10 @@ const Dashboard = () => {
         // Veri yoksa uyarı ver
         if (!Array.isArray(rawPreds) || rawPreds.length === 0) {
             console.warn(`Hat ${selectedLine} için tahmin verisi boş.`);
-            setError("Seçili hat ve dönem için tahmin verisi bulunamadı. Lütfen farklı bir hat veya dönem seçin.");
-            setLoading(false);
+            if (!isCancelled) {
+                setError("Seçili hat ve dönem için tahmin verisi bulunamadı. Lütfen farklı bir hat veya dönem seçin.");
+                setLoading(false);
+            }
             return;
         }
 
@@ -185,7 +187,9 @@ const Dashboard = () => {
         return (
             <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
                 <TrendingUp size={48} className="mb-2 opacity-25" />
-                <small className="text-center">Tahmin verisi yükleniyor...</small>
+                <small className="text-center">
+                    {loading ? 'Tahmin verisi yükleniyor...' : 'Veri bulunamadı.'}
+                </small>
             </div>
         );
     }
