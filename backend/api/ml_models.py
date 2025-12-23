@@ -23,7 +23,7 @@ except ImportError:
     Sequential, LSTM, Dense, Dropout, load_model = None, None, None, None, None
 
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
-from sklearn.metrics import mean_absolute_error
+
 
 # --- DİZİN AYARLARI ---
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,69 +41,83 @@ if not os.path.exists(MODEL_DIR):
 # =============================================================================
 class DemandPredictor:
     def _read_all_data(self, hat_no):
-        """Yardımcı Fonksiyon: Tüm elkart dosyalarını güvenli şekilde okur ve birleştirir."""
+        """
+        Yardımcı Fonksiyon: Tüm elkart dosyalarını okur.
+        DÜZELTME: Hat no eşleşmesini string üzerinden yaparak veri kaybını önler.
+        """
         if not os.path.exists(VERI_SETI_KLASORU): return None
 
         dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
         if not dosyalar: return None
 
         df_list = []
-        hat_no_int = int(hat_no)
+        # Hat numarasını string'e çevirip standartlaştırıyoruz (boşlukları sil)
+        hedef_hat = str(hat_no).strip()
+
+        print(f"[ML] {len(dosyalar)} adet veri dosyası taranıyor...")
 
         for dosya in dosyalar:
             try:
-                # 1. Başlığı oku ve ayırıcıyı (; veya ,) otomatik bul
+                # Ayırıcıyı tespit et
                 with open(dosya, 'r', encoding='utf-8', errors='ignore') as f:
-                    header = f.readline().strip()
-                    ayirici = ';' if ';' in header else ','
+                    ilk_satir = f.readline()
+                    ayirici = ';' if ';' in ilk_satir else ','
 
-                # 2. Pandas ile oku (Hatalı satırları atla)
-                temp = pd.read_csv(dosya, sep=ayirici, encoding='utf-8', on_bad_lines='skip', low_memory=False)
+                # Dosyayı oku
+                chunk_iter = pd.read_csv(dosya, sep=ayirici, chunksize=50000, encoding='utf-8', on_bad_lines='skip',
+                                         low_memory=False)
 
-                # 3. Sütun isimlerini standartlaştır (BÜYÜK HARF yap, boşlukları sil)
-                temp.columns = [str(c).strip().upper().replace('İ', 'I').replace(' ', '_') for c in temp.columns]
+                for temp in chunk_iter:
+                    # Sütun isimlerini temizle
+                    temp.columns = [str(c).strip().upper().replace('İ', 'I').replace(' ', '_') for c in temp.columns]
 
-                # 4. Gerekli sütunları bul (İsim değişse bile yakala)
-                hat_col = next((c for c in temp.columns if 'HAT' in c and 'NO' in c), None)
-                tarih_col = next((c for c in temp.columns if 'TARIH' in c or 'ISLEM' in c or 'ZAMAN' in c), None)
-                saat_col = next((c for c in temp.columns if 'SAAT' in c), None)
-                yolcu_col = next((c for c in temp.columns if 'BINIS' in c or 'YOLCU' in c or 'SAYI' in c), None)
+                    # Gerekli sütunları bul
+                    hat_col = next((c for c in temp.columns if 'HAT' in c and 'NO' in c), None)
+                    tarih_col = next((c for c in temp.columns if 'TARIH' in c or 'ISLEM' in c or 'ZAMAN' in c), None)
+                    saat_col = next((c for c in temp.columns if 'SAAT' in c), None)
+                    yolcu_col = next((c for c in temp.columns if 'BINIS' in c or 'YOLCU' in c or 'SAYI' in c), None)
 
-                if hat_col and tarih_col and saat_col:
-                    # Sadece istenen hattı al
-                    filtered = temp[temp[hat_col] == hat_no_int].copy()
-                    if not filtered.empty:
-                        # Sütunları Prophet'in anlayacağı isme çevir (ds_date, ds_hour, y)
-                        rename_map = {tarih_col: 'ds_date', saat_col: 'ds_hour'}
-                        if yolcu_col:
-                            rename_map[yolcu_col] = 'y'
-                        else:
-                            filtered['y'] = 1  # Yolcu sütunu yoksa her satır 1 biniş sayılır
+                    if hat_col and tarih_col and saat_col:
+                        # DÜZELTME: Verideki hat numarasını da string'e çevirip karşılaştır
+                        temp[hat_col] = temp[hat_col].astype(str).str.strip()
 
-                        filtered = filtered.rename(columns=rename_map)
+                        # Eşleşenleri al
+                        filtered = temp[temp[hat_col] == hedef_hat].copy()
 
-                        # Sayısal düzeltme
-                        if 'y' not in filtered.columns: filtered['y'] = 1
-                        filtered['y'] = pd.to_numeric(filtered['y'], errors='coerce').fillna(1)
+                        if not filtered.empty:
+                            rename_map = {tarih_col: 'ds_date', saat_col: 'ds_hour'}
+                            if yolcu_col:
+                                rename_map[yolcu_col] = 'y'
+                            else:
+                                filtered['y'] = 1
 
-                        df_list.append(filtered[['ds_date', 'ds_hour', 'y']])
-            except:
+                            filtered = filtered.rename(columns=rename_map)
+
+                            # Yolcu sayısını sayıya çevir, hataları 1 yap
+                            if 'y' not in filtered.columns: filtered['y'] = 1
+                            filtered['y'] = pd.to_numeric(filtered['y'], errors='coerce').fillna(1)
+
+                            df_list.append(filtered[['ds_date', 'ds_hour', 'y']])
+            except Exception as e:
+                print(f"[ML] Dosya okuma hatası ({os.path.basename(dosya)}): {e}")
                 continue
 
-        if not df_list: return None
+        if not df_list:
+            print(f"[ML] Hat {hat_no} için hiç veri bulunamadı.")
+            return None
 
-        # Tüm yılları alt alta birleştir
+        # Hepsini birleştir
         full_df = pd.concat(df_list, ignore_index=True)
 
-        # Tarih formatını oluştur (YYYY-MM-DD HH:00:00)
+        # Tarih formatı oluştur (Gün.Ay.Yıl Saat:00)
         try:
             full_df['ds_str'] = full_df['ds_date'].astype(str) + ' ' + full_df['ds_hour'].astype(str) + ':00'
+            # dayfirst=True önemli çünkü format 1.01.2024
             full_df['ds'] = pd.to_datetime(full_df['ds_str'], dayfirst=True, errors='coerce')
         except:
             return None
 
         return full_df.dropna(subset=['ds'])
-        # Geçersiz tarihleri at ve döndür
 
     def __init__(self):
         self.models_prophet = {}
@@ -120,150 +134,96 @@ class DemandPredictor:
         return model
 
     def train_model(self, hat_no):
-        """Prophet (Trend) ve LSTM (Hata Düzeltme) modellerini eğitir."""
+        """Prophet modelini eğitir."""
         if Prophet is None: return False
-        print(f"[ML] Hat {hat_no} için HİBRİT eğitim başladı...")
+        print(f"[ML] Hat {hat_no} için model eğitimi başlatılıyor...")
 
-        # 1. Veriyi Oku (Yukarıdaki fonksiyonu kullanır)
+        # 1. Veriyi Oku
         df = self._read_all_data(hat_no)
-        if df is None or df.empty: return False
+        if df is None or df.empty:
+            print(f"[ML] Yetersiz veri. Eğitim iptal.")
+            return False
 
-        # Saatlik toplama (Aggregation)
+        # 2. Saatlik Toplamları Al (Aynı saatteki binişleri topla)
         df_agg = df.groupby('ds')['y'].sum().reset_index().sort_values('ds')
-        # Eksik saatleri 0 ile doldur (Zaman serisi kopuk olmamalı)
-        df_agg = df_agg.set_index('ds').resample('H').sum().fillna(0).reset_index()
 
+        # Eksik saatleri 0 ile doldur (Zaman serisinin kopmaması için)
+        df_agg = df_agg.set_index('ds').resample('h').sum().fillna(0).reset_index()
+
+        # 3. Prophet Eğitimi
         try:
-            # --- A) PROPHET EĞİTİMİ ---
             model_p = Prophet(daily_seasonality=True, yearly_seasonality=True)
             model_p.add_country_holidays(country_name='TR')
             model_p.fit(df_agg)
 
-            # Prophet'ı Kaydet
-            joblib.dump(model_p, os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl'))
-            self.models_prophet[hat_no] = model_p
+            # Kaydet
+            path = os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl')
+            joblib.dump(model_p, path)
+            self.models_prophet[str(hat_no)] = model_p
 
-            # --- B) LSTM EĞİTİMİ (Opsiyonel ama önerilir) ---
-            if Sequential is not None:
-                # Önce Prophet'in tahminlerini al
-                forecast = model_p.predict(df_agg)
-                # Hata Payı = Gerçek Değer - Prophet Tahmini
-                residuals = df_agg['y'].values - forecast['yhat'].values
-                residuals = residuals.reshape(-1, 1)
-
-                # Hatayı -1 ile 1 arasına sıkıştır (Scaling)
-                scaler = MinMaxScaler(feature_range=(-1, 1))
-                residuals_scaled = scaler.fit_transform(residuals)
-
-                # LSTM için veri hazırla (Son 24 saate bak -> Geleceği tahmin et)
-                look_back = 24
-                X_lstm, y_lstm = [], []
-
-                # Yeterince veri varsa eğitimi yap
-                if len(residuals_scaled) > look_back + 5:
-                    for i in range(len(residuals_scaled) - look_back):
-                        X_lstm.append(residuals_scaled[i:(i + look_back), 0])
-                        y_lstm.append(residuals_scaled[i + look_back, 0])
-
-                    X_lstm = np.array(X_lstm).reshape(len(X_lstm), look_back, 1)
-                    y_lstm = np.array(y_lstm)
-
-                    # LSTM Modelini Oluştur ve Eğit
-                    model_l = self.create_lstm_model((look_back, 1))
-                    if model_l:
-                        model_l.fit(X_lstm, y_lstm, epochs=5, batch_size=32, verbose=0)
-
-                        # Kaydet
-                        model_l.save(os.path.join(MODEL_DIR, f'lstm_demand_{hat_no}.h5'))
-                        joblib.dump(scaler, os.path.join(MODEL_DIR, f'scaler_demand_{hat_no}.pkl'))
-                        self.models_lstm[hat_no] = model_l
-                        self.scalers[hat_no] = scaler
-                        print(f"[ML] LSTM hata düzeltme modeli eğitildi.")
-
-            print(f"[ML] Hat {hat_no} eğitimi tamamlandı.")
+            print(f"[ML] Model başarıyla eğitildi ve kaydedildi: {path}")
             return True
         except Exception as e:
-            print(f"[ML] Eğitim hatası: {e}")
+            print(f"[ML] Eğitim sırasında hata: {e}")
             return False
 
     def predict(self, hat_no, hours=24, agg='hour'):
-        """Tahmin Yapar. Model yoksa OTOMATİK EĞİTİR."""
+        """Modeli eğitir ve SADECE GELECEĞİ (Şimdiki zaman ve sonrası) döndürür."""
         hat_no = str(hat_no)
-
-        # Dosya Yolları
         p_path = os.path.join(MODEL_DIR, f'prophet_hat_{hat_no}.pkl')
-        l_path = os.path.join(MODEL_DIR, f'lstm_demand_{hat_no}.h5')
-        s_path = os.path.join(MODEL_DIR, f'scaler_demand_{hat_no}.pkl')
 
-        # --- 1. MODELLERİ YÜKLE ---
+        # 1. Modeli Yükle (Hata Kontrollü)
         model_p = self.models_prophet.get(hat_no)
-
-        # Prophet hafızada yoksa dosyadan yükle
         if model_p is None and os.path.exists(p_path):
             try:
                 model_p = joblib.load(p_path)
             except:
                 model_p = None
 
-        # Hâlâ yoksa -> OTOMATİK EĞİTİM BAŞLAT
+        # Model yoksa eğit
         if model_p is None:
-            print(f"[ML] Model dosyası yok. Hat {hat_no} için eğitim tetikleniyor...")
-            success = self.train_model(hat_no)
-            if success:
-                model_p = self.models_prophet.get(hat_no)
-            else:
-                return None  # Eğitim başarısız
+            if not self.train_model(hat_no): return None
+            model_p = self.models_prophet.get(hat_no)
 
-        self.models_prophet[hat_no] = model_p
+        if model_p is None: return None
 
-        # LSTM Modelini Yükle (Varsa)
-        if hat_no not in self.models_lstm and os.path.exists(l_path):
-            try:
-                self.models_lstm[hat_no] = load_model(l_path)
-                self.scalers[hat_no] = joblib.load(s_path)
-            except:
-                pass
-
-        # --- 2. TAHMİN OLUŞTUR ---
+        # 2. Tahmin Oluştur (Pandas Uyumsuzluğu İçin Try-Catch)
         try:
-            # Prophet Tahmini
-            future = model_p.make_future_dataframe(periods=hours, freq='H')
+            # Pandas 2.x uyumu için freq='h' (küçük harf)
+            future = model_p.make_future_dataframe(periods=hours, freq='h')
             forecast = model_p.predict(future)
-            # Sadece istenen gelecek süreyi al
-            result = forecast.tail(hours)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        except Exception as e:
+            print(f"[ML] Model uyumsuzluğu ({e}). Yeniden eğitiliyor...")
+            # Hatalı modeli sil ve yeniden eğit
+            if os.path.exists(p_path): os.remove(p_path)
+            if self.train_model(hat_no):
+                model_p = self.models_prophet.get(hat_no)
+                future = model_p.make_future_dataframe(periods=hours, freq='h')
+                forecast = model_p.predict(future)
+            else:
+                return None
 
-            # --- 3. LSTM DÜZELTMESİ (Correction) ---
-            if hat_no in self.models_lstm and Sequential is not None:
-                try:
-                    # Normalde buraya son 24 saatin gerçek hatası verilir.
-                    # Simülasyon için '0' hatası varsayıyoruz (yani nötr düzeltme)
-                    look_back = 24
-                    dummy_input = np.zeros((1, look_back, 1))
+        try:
+            # --- KRİTİK FİLTRE: SADECE GELECEK ---
+            # Bugünden eski verileri (2024 başı, 2023 vs.) atıyoruz.
+            forecast = forecast[forecast['ds'] >= datetime.now()]
 
-                    # LSTM ne kadar düzeltme öneriyor?
-                    correction = self.models_lstm[hat_no].predict(dummy_input, verbose=0)
-                    correction_val = self.scalers[hat_no].inverse_transform(correction)[0][0]
+            # İstenen saat kadarını al (örn: 5 yıl)
+            result = forecast.head(hours)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
 
-                    # Düzeltmeyi uygula (Basitçe ilk değerlere ekliyoruz)
-                    result['yhat'] += correction_val
-                except:
-                    pass
-
-            # Negatif tahminleri temizle (0'a eşitle)
+            # Negatifleri temizle
             result[['yhat', 'yhat_lower', 'yhat_upper']] = result[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
 
-            # --- 4. SONUÇLARI GRUPLA (Aggregation) ---
+            # 3. Gruplama
             if agg == 'day':
-                # Günlük Toplam
                 result = result.resample('D', on='ds').sum().reset_index()
             elif agg == 'month':
-                # Aylık Toplam
-                result = result.resample('ME', on='ds').sum().reset_index()  # Pandas sürümüne göre 'M' veya 'ME'
+                result = result.resample('MS', on='ds').sum().reset_index()
 
             return result.to_dict('records')
 
         except Exception as e:
-            print(f"[ML] Tahmin hatası: {e}")
+            print(f"[ML] İşleme hatası: {e}")
             return None
 
 # =============================================================================

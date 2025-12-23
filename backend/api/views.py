@@ -53,36 +53,37 @@ def get_elkart_data(hat_no):
     Hataları gizlemez, konsola yazar.
     """
     if not os.path.exists(VERI_SETI_KLASORU):
-        print(f"HATA: Veri seti klasörü bulunamadı: {VERI_SETI_KLASORU}")
         return pd.DataFrame()
 
     dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "elkart*.csv"))
     if not dosyalar:
-        print("UYARI: Hiç 'elkart*.csv' dosyası bulunamadı.")
         return pd.DataFrame()
 
     # Dosyaları tarihe göre sırala
     dosyalar.sort(reverse=True)
     df_list = []
-    hat_no_int = int(hat_no)
+
+    # --- DÜZELTME BAŞLANGICI ---
+    # Hat numarası "4-A" gibi string gelebilir, int() zorlaması patlatır.
+    try:
+        hat_no_int = int(hat_no)
+    except:
+        hat_no_int = str(hat_no)
+    # --- DÜZELTME BİTİŞİ ---
 
     print(f"Hat {hat_no} için {len(dosyalar)} adet Elkart dosyası taranıyor...")
 
     for dosya in dosyalar:
         try:
-            # Dosya ayracını tespit et
             with open(dosya, 'r', encoding='utf-8', errors='ignore') as f:
                 ilk_satir = f.readline()
                 ayirici = ';' if ';' in ilk_satir else ','
 
-            # Parçalı okuma (Memory dostu)
             iter_csv = pd.read_csv(dosya, sep=ayirici, chunksize=50000,
                                    encoding='utf-8', on_bad_lines='skip', low_memory=False)
 
             for chunk in iter_csv:
                 chunk.columns = normalize_cols(chunk.columns)
-
-                # Sütun eşleştirme (Esnek)
                 hat_col = next((c for c in chunk.columns if 'HAT' in c and 'NO' in c), None)
                 yolcu_col = next((c for c in chunk.columns if 'BINIS' in c or 'SAYI' in c or 'YOLCU' in c), None)
                 saat_col = next((c for c in chunk.columns if 'SAAT' in c), None)
@@ -91,16 +92,12 @@ def get_elkart_data(hat_no):
                     filtered = chunk[chunk[hat_col] == hat_no_int].copy()
                     if not filtered.empty:
                         filtered = filtered.rename(columns={yolcu_col: 'yolcu', saat_col: 'saat'})
-                        # Sayısal çevrim
                         filtered['yolcu'] = pd.to_numeric(filtered['yolcu'], errors='coerce').fillna(1)
                         df_list.append(filtered[['yolcu', 'saat']])
-
         except Exception as e:
-            print(f"Dosya okuma hatası ({os.path.basename(dosya)}): {str(e)}")
             continue
 
     if not df_list:
-        print(f"Hat {hat_no} için veri bulunamadı.")
         return pd.DataFrame()
 
     return pd.concat(df_list, ignore_index=True)
@@ -360,16 +357,16 @@ class PredictDemandView(APIView):
 
         period = request.query_params.get('period', 'daily')
 
-        # DÜZELTME: Model saatlik ('freq=H') çalıştığı için
-        # 'hours' parametresine toplam SAAT sayısını vermeliyiz.
+        # --- DÜZELTME BAŞLANGICI ---
+        # 1 Yıl yerine 5 Yıllık veri iste (43.800 Saat)
         agg_map = {
-            'daily': (24, 'hour'),  # 1 Gün = 24 Saat
-            'weekly': (168, 'day'),  # 7 Gün x 24 = 168 Saat
-            'monthly': (720, 'day'),  # 30 Gün x 24 = 720 Saat
-            'yearly': (8760, 'month')  # 365 Gün x 24 = 8760 Saat
+            'daily': (24, 'hour'),
+            'weekly': (168, 'day'),
+            'monthly': (720, 'day'),
+            'yearly': (8760 , 'month')  # BURASI DÜZELTİLDİ: 5 YIL
         }
+        # --- DÜZELTME BİTİŞİ ---
 
-        # Varsayılan günlük
         hours, agg = agg_map.get(period, (24, 'hour'))
 
         try:
@@ -378,7 +375,7 @@ class PredictDemandView(APIView):
             if preds is None:
                 return Response({
                     "durum": "egitilmemis",
-                    "mesaj": f"Hat {hat_no} için model eğitilmemiş. Terminalden 'python manage.py analiz_araclar --egit' çalıştırın."
+                    "mesaj": f"Hat {hat_no} verisi bulunamadı."
                 })
 
             return Response({

@@ -57,14 +57,12 @@ const Dashboard = () => {
         // A) Talep Tahmini
         const demandRes = await axios.get(`http://127.0.0.1:8000/api/predict-demand/${selectedLine}/?period=${period}`);
 
-        // B) Kapasite Analizi (Sadece Günlük modda anlamlıdır, diğerlerinde boş dönebiliriz)
+        // B) Kapasite Analizi (Her periyot için çekmeye çalış)
         let capacityRes = { data: { analiz: [] } };
-        if (period === 'daily') {
-            try {
-                capacityRes = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/`);
-            } catch (e) {
-                console.warn("Kapasite analizi çekilemedi.");
-            }
+        try {
+            capacityRes = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/`);
+        } catch (e) {
+            console.warn("Kapasite analizi çekilemedi.");
         }
 
         // --- Veri İşleme ---
@@ -117,7 +115,8 @@ const Dashboard = () => {
 
       } catch (err) {
         console.error(err);
-        setError("Veriler alınırken bir hata oluştu. Lütfen Backend'in çalıştığından ve modelin eğitildiğinden emin olun.");
+        // 500 Hatası alıyorsanız Backend dosyalarınızı (views.py ve ml_models.py) kontrol edin.
+        setError("Veriler alınırken bir hata oluştu. Lütfen Backend'in çalıştığından ve modellerin doğru yüklendiğinden emin olun.");
       } finally {
         setLoading(false);
       }
@@ -126,11 +125,11 @@ const Dashboard = () => {
     fetchData();
   }, [selectedLine, period]);
 
-  // Grafik Bileşeni Seçimi (Yıllık için BarChart daha şık durur)
+  // Grafik Bileşeni Seçimi
   const renderMainChart = () => {
     if (period === 'yearly') {
         return (
-            // DÜZELTME: minWidth={0} eklendi
+            // DÜZELTME 1: minWidth={0} eklendi
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <BarChart data={predictions}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9ecef" />
@@ -144,7 +143,7 @@ const Dashboard = () => {
     }
     // Diğerleri için AreaChart
     return (
-        // DÜZELTME: minWidth={0} eklendi
+        // DÜZELTME 2: minWidth={0} eklendi
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart data={predictions}>
                 <defs>
@@ -197,7 +196,7 @@ const Dashboard = () => {
               ))}
             </Form.Select>
 
-            {/* Periyot Seçimi (GÜNCELLENDİ) */}
+            {/* Periyot Seçimi */}
             <ButtonGroup className="shadow-sm bg-white rounded">
               {['daily', 'weekly', 'monthly', 'yearly'].map((p) => (
                 <Button
@@ -254,7 +253,7 @@ const Dashboard = () => {
                         value={`%${stats.avgOccupancy}`}
                         icon={<PieChart size={24} />}
                         color="info"
-                        sub={period === 'daily' ? "Kapasite kullanım oranı" : "Veri sadece günlük modda"}
+                        sub="Kapasite kullanım oranı"
                     />
                 </Col>
                 <Col md={6} lg={3}>
@@ -263,7 +262,7 @@ const Dashboard = () => {
                         value={stats.riskHour}
                         icon={<AlertTriangle size={24} />}
                         color={stats.riskHour !== '-' ? 'danger' : 'secondary'}
-                        sub={period === 'daily' ? "Olası izdiham uyarısı" : "-"}
+                        sub="Olası izdiham uyarısı"
                         isAlert={stats.riskHour !== '-'}
                     />
                 </Col>
@@ -271,21 +270,21 @@ const Dashboard = () => {
 
             {/* GRAFİKLER */}
             <Row className="g-4 mb-4">
-                {/* SOL: Ana Talep Grafiği */}
-                <Col lg={period === 'daily' ? 8 : 12}>
+                {/* SOL: Ana Talep Grafiği (Prophet) */}
+                <Col lg={8}>
                     <Card className="shadow-sm border-0 h-100">
                         <Card.Body>
                             <div className="d-flex justify-content-between align-items-center mb-4">
                                 <h5 className="card-title fw-bold mb-0 text-dark">
                                     <TrendingUp size={20} className="me-2 text-primary" />
-                                    Yolcu Talebi Tahmini ({period === 'yearly' ? 'Yıllık Projeksiyon' : period === 'daily' ? '24 Saatlik' : period === 'weekly' ? '7 Günlük' : '30 Günlük'})
+                                    Yolcu Talebi Tahmini
                                 </h5>
                                 <Badge bg="light" text="primary" className="border border-primary-subtle">
                                     AI Model: Prophet
                                 </Badge>
                             </div>
 
-                            {/* DÜZELTME: width: '100%' ve minWidth: 0 eklendi */}
+                            {/* DÜZELTME 3: Kapsayıcı div'e width: 100% ve minWidth: 0 verildi */}
                             <div style={{ width: '100%', height: '350px', minWidth: 0 }}>
                                 {renderMainChart()}
                             </div>
@@ -293,57 +292,55 @@ const Dashboard = () => {
                     </Card>
                 </Col>
 
-                {/* SAĞ: Doluluk Analizi (Sadece GÜNLÜK modda göster) */}
-                {period === 'daily' && (
-                    <Col lg={4}>
-                        <Card className="shadow-sm border-0 h-100">
-                            <Card.Body>
-                                <div className="mb-4">
-                                    <h5 className="card-title fw-bold mb-1 text-dark">
-                                        <Bus size={20} className="me-2 text-info" />
-                                        Doluluk Analizi
-                                    </h5>
-                                    <small className="text-muted">Kapasite vs Beklenen Yolcu</small>
+                {/* SAĞ: Doluluk Analizi (DÜZELTME 4: Şart kaldırıldı, her zaman görünür) */}
+                <Col lg={4}>
+                    <Card className="shadow-sm border-0 h-100">
+                        <Card.Body>
+                            <div className="mb-4">
+                                <h5 className="card-title fw-bold mb-1 text-dark">
+                                    <Bus size={20} className="me-2 text-info" />
+                                    Doluluk Analizi
+                                </h5>
+                                <small className="text-muted">Kapasite vs Beklenen Yolcu</small>
+                            </div>
+
+                            {capacityData.length > 0 ? (
+                                /* DÜZELTME 5: Kapsayıcı div eklendi ve minWidth verildi */
+                                <div style={{ width: '100%', height: '350px', minWidth: 0 }}>
+                                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                                        <ComposedChart data={capacityData} layout="vertical">
+                                            <CartesianGrid stroke="#e9ecef" horizontal={false} />
+                                            <XAxis type="number" hide />
+                                            <YAxis
+                                                dataKey="saat"
+                                                type="category"
+                                                scale="band"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                width={40}
+                                                tick={{fontSize: 11, fill: '#6c757d'}}
+                                            />
+                                            <Tooltip cursor={{fill: 'transparent'}} />
+                                            <Legend wrapperStyle={{fontSize: '12px'}} />
+
+                                            <Bar dataKey="kapasite" name="Kapasite" fill="#dee2e6" barSize={12} radius={[0, 4, 4, 0]} />
+                                            <Bar dataKey="ortalama_yolcu" name="Beklenen" fill="#0dcaf0" barSize={8} radius={[0, 4, 4, 0]} />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
                                 </div>
-
-                                {capacityData.length > 0 ? (
-                                    /* DÜZELTME: minWidth: 0 eklendi */
-                                    <div style={{ width: '100%', height: '350px', minWidth: 0 }}>
-                                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                                            <ComposedChart data={capacityData} layout="vertical">
-                                                <CartesianGrid stroke="#e9ecef" horizontal={false} />
-                                                <XAxis type="number" hide />
-                                                <YAxis
-                                                    dataKey="saat"
-                                                    type="category"
-                                                    scale="band"
-                                                    axisLine={false}
-                                                    tickLine={false}
-                                                    width={40}
-                                                    tick={{fontSize: 11, fill: '#6c757d'}}
-                                                />
-                                                <Tooltip cursor={{fill: 'transparent'}} />
-                                                <Legend wrapperStyle={{fontSize: '12px'}} />
-
-                                                <Bar dataKey="kapasite" name="Kapasite" fill="#dee2e6" barSize={12} radius={[0, 4, 4, 0]} />
-                                                <Bar dataKey="ortalama_yolcu" name="Beklenen" fill="#0dcaf0" barSize={8} radius={[0, 4, 4, 0]} />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                ) : (
-                                    <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
-                                        <Bus size={48} className="mb-2 opacity-25" />
-                                        <small className="text-center">Analiz verisi bulunamadı.<br/>Tarife dosyasını kontrol edin.</small>
-                                    </div>
-                                )}
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                )}
+                            ) : (
+                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                                    <Bus size={48} className="mb-2 opacity-25" />
+                                    <small className="text-center">Analiz verisi bulunamadı.<br/>Tarife dosyasını kontrol edin.</small>
+                                </div>
+                            )}
+                        </Card.Body>
+                    </Card>
+                </Col>
             </Row>
 
-            {/* TABLO: Saatlik Detaylar (Sadece Günlük) */}
-            {capacityData.length > 0 && period === 'daily' && (
+            {/* TABLO: Saatlik Detaylar (DÜZELTME 6: Her zaman görünmesi için period şartı kaldırıldı) */}
+            {capacityData.length > 0 && (
                 <Card className="shadow-sm border-0 overflow-hidden">
                     <Card.Header className="bg-white py-3 border-bottom border-light d-flex justify-content-between align-items-center">
                         <h6 className="m-0 fw-bold text-dark">Saatlik Sefer Planlaması</h6>
