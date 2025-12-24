@@ -60,7 +60,7 @@ class DemandPredictor:
         if not dosyalar: return None
 
         df_list = []
-        hedef_hat = self._clean_hat_no(hat_no)  # '4'
+        hedef_hat = self._clean_hat_no(hat_no)
 
         print(f"[ML] Hat {hat_no} (Aranan: {hedef_hat}) için veri taranıyor...")
 
@@ -83,8 +83,7 @@ class DemandPredictor:
                     yolcu_col = next((c for c in temp.columns if 'BINIS' in c or 'YOLCU' in c or 'SAYI' in c), None)
 
                     if hat_col and tarih_col and saat_col:
-                        # --- KRİTİK DÜZELTME: Hat No Temizliği ---
-                        # Verideki '4.0' değerini '4' yapıp karşılaştırıyoruz
+                        # Hat No Temizliği
                         temp['hat_clean'] = temp[hat_col].apply(self._clean_hat_no)
 
                         filtered = temp[temp['hat_clean'] == hedef_hat].copy()
@@ -166,9 +165,6 @@ class DemandPredictor:
                 seasonality_prior_scale=10.0
             )
 
-            # Negatif tahminleri engellemek için 'logistic' büyüme kullanılabilir ama
-            # basitlik adına trendi sabitledik.
-
             model_p.add_country_holidays(country_name='TR')
             model_p.fit(df_agg)
 
@@ -198,6 +194,7 @@ class DemandPredictor:
                     pass
 
             if model_p is None:
+                # Model yoksa eğit
                 if self.train_model(hat_no):
                     model_p = self.models_prophet.get(hat_no)
                 else:
@@ -225,7 +222,6 @@ class DemandPredictor:
                 result = forecast[['ds', 'yhat']].copy()
 
             # Tarihleri string formatına çevir (Frontend için garanti olsun)
-            # ISO Format: 2025-01-01T14:00:00
             result['ds'] = result['ds'].apply(lambda x: x.isoformat())
 
             return result.to_dict('records')

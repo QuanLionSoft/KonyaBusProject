@@ -267,3 +267,35 @@ body {
   font-weight: bold;
   font-size: 12px;
 }
+/* Sidebar Custom Styles */
+.hover-bg-white-10:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.hover-text-white:hover {
+  color: #fff !important;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Scrollbar'ı gizle ama işlevsel kalsın */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 4px;
+}
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+.overflow-y-auto:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+}

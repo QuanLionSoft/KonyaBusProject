@@ -1,65 +1,198 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Map, Bus, Settings, LogOut } from 'lucide-react';
+import {
+  LayoutDashboard, Map, List, Menu, ChevronLeft, ChevronRight,
+  Bus, Settings, LogOut
+} from 'lucide-react';
+import { Button, Tooltip, OverlayTrigger } from 'react-bootstrap';
 
 const Sidebar = () => {
-    const menuItems = [
-        {
-            path: "/",
-            name: "Yönetim Paneli",
-            icon: <LayoutDashboard size={20} />
-        },
-        {
-            path: "/harita",
-            name: "Canlı Harita",
-            icon: <Map size={20} />
-        },
-        {
-            path: "/yonetim",
-            name: "Hat & Sefer Yönetimi",
-            icon: <Bus size={20} />
-        },
-    ];
+  // Ekran genişliğine göre başlangıç durumu
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showMobile, setShowMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-    return (
-        <div className="d-flex flex-column flex-shrink-0 p-3 bg-dark text-white" style={{ width: '280px', height: '100vh' }}>
-            <a href="/" className="d-flex align-items-center mb-4 mb-md-0 me-md-auto text-white text-decoration-none">
-                <span className="fs-4 fw-bold ms-2">🚌 KonyaBus AI</span>
-            </a>
-            <hr />
-            <ul className="nav nav-pills flex-column mb-auto">
-                {menuItems.map((item, index) => (
-                    <li className="nav-item mb-2" key={index}>
-                        <NavLink
-                            to={item.path}
-                            className={({ isActive }) =>
-                                `nav-link d-flex align-items-center text-white ${isActive ? 'active bg-primary' : ''}`
-                            }
-                            style={{ gap: '10px', padding: '12px 15px', borderRadius: '8px', transition: 'all 0.2s' }}
-                        >
-                            {item.icon}
-                            <span className="fw-medium">{item.name}</span>
-                        </NavLink>
-                    </li>
-                ))}
-            </ul>
-            <hr />
-            <div className="dropdown">
-                <a href="#" className="d-flex align-items-center text-white text-decoration-none dropdown-toggle" id="dropdownUser1" data-bs-toggle="dropdown" aria-expanded="false">
-                    <div className="bg-primary rounded-circle d-flex align-items-center justify-content-center me-2" style={{width: 32, height: 32}}>
-                        A
-                    </div>
-                    <strong>Admin</strong>
-                </a>
-                <ul className="dropdown-menu dropdown-menu-dark text-small shadow" aria-labelledby="dropdownUser1">
-                    <li><a className="dropdown-item" href="#">Ayarlar</a></li>
-                    <li><a className="dropdown-item" href="#">Profil</a></li>
-                    <li><hr className="dropdown-divider" /></li>
-                    <li><a className="dropdown-item text-danger" href="#">Çıkış Yap</a></li>
-                </ul>
+  // Pencere boyutu değişince mobil/desktop ayrımını yap
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setShowMobile(false); // Masaüstüne dönünce mobil menüyü kapat
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Menü Linkleri
+  const menuItems = [
+    { path: "/", name: "Dashboard", icon: <LayoutDashboard size={20} /> },
+    { path: "/harita", name: "Canlı Harita", icon: <Map size={20} /> },
+    { path: "/hat-yonetimi", name: "Hat Yönetimi", icon: <List size={20} /> },
+  ];
+
+  // Alt Menü (Ayarlar vb.)
+  const bottomItems = [
+    { path: "/ayarlar", name: "Ayarlar", icon: <Settings size={20} /> },
+  ];
+
+  // --- RENDER ---
+
+  // 1. MOBİL MENÜ BUTONU (Sadece Mobilde Görünür)
+  const MobileToggle = () => (
+    <Button
+      variant="primary"
+      className="d-md-none position-fixed top-0 start-0 m-3 z-3 shadow rounded-circle p-2"
+      onClick={() => setShowMobile(!showMobile)}
+    >
+      <Menu size={24} color="white" />
+    </Button>
+  );
+
+  // 2. SIDEBAR İÇERİĞİ
+  const SidebarContent = () => (
+    <div className="d-flex flex-column h-100 text-white">
+      {/* LOGO ALANI */}
+      <div className={`d-flex align-items-center p-3 ${isCollapsed ? 'justify-content-center' : 'justify-content-between'}`} style={{height: '70px'}}>
+
+        {/* Logo / Başlık */}
+        {!isCollapsed && (
+          <div className="d-flex align-items-center animate-fade-in">
+            <div className="bg-primary text-white rounded p-1 me-2 fw-bold d-flex align-items-center justify-content-center" style={{width: 32, height: 32}}>
+              <Bus size={20}/>
             </div>
+            <span className="fw-bold fs-5" style={{letterSpacing: '1px'}}>KONYA<span className="text-primary">BUS</span></span>
+          </div>
+        )}
+
+        {/* Desktop Collapse Butonu */}
+        <Button
+          variant="link"
+          className="text-white-50 p-0 d-none d-md-block hover-white"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
+          {isCollapsed ? <ChevronRight size={24}/> : <ChevronLeft size={24}/>}
+        </Button>
+
+        {/* Mobil Kapatma Butonu */}
+        <Button
+          variant="link"
+          className="text-white d-md-none ms-auto"
+          onClick={() => setShowMobile(false)}
+        >
+          <ChevronLeft size={24}/>
+        </Button>
+      </div>
+
+      <hr className="border-secondary mx-3 my-0 opacity-25"/>
+
+      {/* MENÜ LİSTESİ */}
+      <div className="flex-grow-1 py-3 overflow-y-auto">
+        <div className="d-flex flex-column gap-1 px-2">
+          {menuItems.map((item, idx) => (
+            <NavItem key={idx} item={item} isCollapsed={isCollapsed} onClick={() => isMobile && setShowMobile(false)} />
+          ))}
         </div>
+      </div>
+
+      {/* ALT MENÜ */}
+      <div className="p-2 border-top border-secondary border-opacity-25 bg-black bg-opacity-25">
+        {bottomItems.map((item, idx) => (
+           <NavItem key={idx} item={item} isCollapsed={isCollapsed} />
+        ))}
+
+        {/* Çıkış Butonu (Örnek) */}
+        <div className={`mt-1 nav-link d-flex align-items-center rounded p-2 text-danger hover-bg-danger-subtle cursor-pointer ${isCollapsed ? 'justify-content-center' : ''}`} role="button">
+            <LogOut size={20} />
+            {!isCollapsed && <span className="ms-3 fw-bold">Çıkış Yap</span>}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Sidebar Wrapper Stili
+  const sidebarStyle = {
+    width: isMobile ? '280px' : (isCollapsed ? '80px' : '260px'),
+    height: '100vh',
+    position: 'fixed',
+    top: 0,
+    left: isMobile ? (showMobile ? '0' : '-280px') : '0',
+    backgroundColor: '#1e293b', // Modern Dark Blue-Gray
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    zIndex: 1040,
+    boxShadow: '4px 0 24px rgba(0,0,0,0.1)'
+  };
+
+  // Overlay (Sadece Mobilde arka planı karartmak için)
+  const overlayStyle = {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1039,
+    display: (isMobile && showMobile) ? 'block' : 'none'
+  };
+
+  // İçerik Kaydırma (Main Content Margin)
+  // Bu stil App.jsx içinde kullanılmalı ama burada sidebar'ın kapladığı alanı göstermek için
+  // App.jsx'e bir prop veya class ile haber vermek gerekir.
+  // Şimdilik sadece Sidebar componentini yapıyoruz.
+
+  return (
+    <>
+      <MobileToggle />
+      <div style={overlayStyle} onClick={() => setShowMobile(false)} />
+      <div style={sidebarStyle} className="sidebar-container">
+        <SidebarContent />
+      </div>
+
+      {/* Masaüstünde içerik sola kaymasın diye boş div (Spacer) */}
+      {!isMobile && (
+        <div style={{
+            width: isCollapsed ? '80px' : '260px',
+            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            flexShrink: 0
+        }} />
+      )}
+    </>
+  );
+};
+
+// YARDIMCI BİLEŞEN: NavItem
+const NavItem = ({ item, isCollapsed, onClick }) => {
+  const content = (
+    <NavLink
+      to={item.path}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `d-flex align-items-center text-decoration-none rounded p-2 my-1 transition-all ${
+          isActive 
+            ? 'bg-primary text-white shadow-sm' 
+            : 'text-white-50 hover-bg-white-10 hover-text-white'
+        } ${isCollapsed ? 'justify-content-center' : ''}`
+      }
+      style={{height: '48px'}}
+    >
+      <div className="d-flex align-items-center justify-content-center">
+        {item.icon}
+      </div>
+      {!isCollapsed && (
+        <span className="ms-3 fw-medium text-nowrap animate-fade-in">
+          {item.name}
+        </span>
+      )}
+    </NavLink>
+  );
+
+  // Daraltılmış modda Tooltip göster
+  if (isCollapsed) {
+    return (
+      <OverlayTrigger
+        placement="right"
+        overlay={<Tooltip>{item.name}</Tooltip>}
+      >
+        <div>{content}</div>
+      </OverlayTrigger>
     );
+  }
+
+  return content;
 };
 
 export default Sidebar;
