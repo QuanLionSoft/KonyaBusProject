@@ -1,4 +1,5 @@
 from rest_framework import viewsets
+from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -8,7 +9,11 @@ import os
 import glob
 import pandas as pd
 import numpy as np
+from rest_framework_simplejwt.views import TokenObtainPairView
 
+from .serializers import UserSerializer
+from rest_framework import generics, permissions
+from .serializers import CustomTokenObtainPairSerializer
 # --- MODELLER VE SERIALIZERS ---
 from .models import (
     Hat, Durak, HatDurak, TalepVerisi, EkSefer,
@@ -18,6 +23,15 @@ from .serializers import (
     HatSerializer, DurakSerializer, HatDurakSerializer,
     TalepVerisiSerializer, OtobusSerializer
 )
+# --- ÖZEL LOGIN VIEW ---
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = UserSerializer
+
 
 # --- YAPAY ZEKA MODÜLLERİ ---
 try:
@@ -566,3 +580,4 @@ def aktif_otobusler(request):
 
 class DetayliAnalizView(APIView):
     def get(self, request, hat_no): return Response({"message": "Detay Analiz Yakında..."})
+

@@ -12,6 +12,13 @@ import {
   Users, TrendingUp, AlertTriangle,
   Activity, LayoutDashboard, PieChart, List
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable'; // <-- DEĞİŞİKLİK BURADA
+import { Download } from 'lucide-react';
+
+
+
+
 
 const Dashboard = () => {
   // --- STATE TANIMLARI ---
@@ -34,6 +41,53 @@ const Dashboard = () => {
     totalDemand: 0, maxDemand: 0, riskHour: '-', avgOccupancy: 0
   });
 
+const downloadReport = () => {
+        const doc = new jsPDF();
+
+        // 1. Periyot İsmini Türkçeleştir (Dosya ve Başlık için)
+        const periodLabels = {
+            'daily': 'GUNLUK',
+            'weekly': 'HAFTALIK',
+            'monthly': 'AYLIK',
+            'yearly': 'YILLIK'
+        };
+        const currentLabel = periodLabels[period] || 'GENEL'; // 'period' state'inden gelir
+
+        // 2. Dinamik Başlık
+        doc.setFontSize(18);
+        doc.text(`KonyaBus - ${currentLabel} Hat Analiz Raporu`, 14, 22);
+
+        doc.setFontSize(11);
+        doc.text(`Tarih: ${new Date().toLocaleDateString()}`, 14, 30);
+        doc.text(`Hat: ${selectedLine}`, 14, 36);
+        doc.text(`Periyot: ${currentLabel}`, 14, 42); // Raporun içine de ekledik
+
+        // Tablo Verisini Hazırla
+        const tableColumn = ["Saat", "Sefer Sayisi", "Yolcu Tahmini", "Kapasite", "Doluluk %"];
+        const tableRows = [];
+
+        capacityData.forEach(item => {
+            const rowData = [
+                item.saat,
+                item.sefer_sayisi,
+                item.ortalama_yolcu,
+                item.kapasite,
+                `%${item.doluluk_yuzdesi}`
+            ];
+            tableRows.push(rowData);
+        });
+
+        // Tabloyu Çiz
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 48,
+        });
+
+        // 3. Dinamik Dosya İsmi (Örn: Rapor_AYLIK_4-A_2025-12-24.pdf)
+        const dateStr = new Date().toISOString().slice(0,10);
+        doc.save(`Rapor_${currentLabel}_${selectedLine}_${dateStr}.pdf`);
+    };
   // 1. Hat Listesini Çek
   useEffect(() => {
     axios.get('http://127.0.0.1:8000/api/hatlar/')
@@ -118,7 +172,15 @@ const Dashboard = () => {
 
   return (
     <Container fluid className="py-4 bg-light min-vh-100">
+<div className="d-flex justify-content-between align-items-center mb-4">
+    <h2 className="fw-bold text-dark m-0">Yönetim Paneli</h2>
 
+    {/* PDF BUTONU */}
+    <Button variant="outline-primary" onClick={downloadReport}>
+        <Download size={18} className="me-2"/>
+        Rapor İndir (PDF)
+    </Button>
+</div>
       {/* BAŞLIK VE FİLTRELER */}
       <Card className="border-0 shadow-sm mb-4 bg-white">
         <Card.Body className="d-flex flex-column flex-md-row justify-content-between align-items-center p-4">

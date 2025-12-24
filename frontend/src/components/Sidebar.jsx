@@ -6,6 +6,12 @@ import {
 } from 'lucide-react';
 import { Button, Tooltip, OverlayTrigger } from 'react-bootstrap';
 
+const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('username');
+    window.location.href = '/login';
+  };
 const Sidebar = () => {
   // Ekran genişliğine göre başlangıç durumu
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -101,10 +107,10 @@ const Sidebar = () => {
         ))}
 
         {/* Çıkış Butonu (Örnek) */}
-        <div className={`mt-1 nav-link d-flex align-items-center rounded p-2 text-danger hover-bg-danger-subtle cursor-pointer ${isCollapsed ? 'justify-content-center' : ''}`} role="button">
-            <LogOut size={20} />
-            {!isCollapsed && <span className="ms-3 fw-bold">Çıkış Yap</span>}
-        </div>
+        <div onClick={handleLogout} className="...">
+      <LogOut size={20} />
+      {!isCollapsed && <span className="ms-3 fw-bold">Çıkış Yap</span>}
+  </div>
       </div>
     </div>
   );
