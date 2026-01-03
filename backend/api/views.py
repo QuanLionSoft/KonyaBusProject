@@ -14,7 +14,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import UserSerializer
 from rest_framework import generics, permissions
 from .serializers import CustomTokenObtainPairSerializer
-# --- MODELLER VE SERIALIZERS ---
+
 from .models import (
     Hat, Durak, HatDurak, TalepVerisi, EkSefer,
     Otobus, HatTarife, HatGuzergah
@@ -23,7 +23,7 @@ from .serializers import (
     HatSerializer, DurakSerializer, HatDurakSerializer,
     TalepVerisiSerializer, OtobusSerializer
 )
-# --- ÖZEL LOGIN VIEW ---
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
@@ -33,7 +33,7 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserSerializer
 
 
-# --- YAPAY ZEKA MODÜLLERİ ---
+
 try:
     from .ml_models import demand_predictor, travel_predictor
 except ImportError:
@@ -41,15 +41,13 @@ except ImportError:
     travel_predictor = None
     print("UYARI: ML Modülleri yüklenemedi. Tahmin servisleri çalışmayabilir.")
 
-# --- DOSYA YOLLARI ---
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 VERI_SETI_KLASORU = os.path.join(PROJECT_ROOT, 'veri_seti')
 
 
-# =============================================================================
-# YARDIMCI FONKSİYONLAR
-# =============================================================================
+
 def normalize_cols(cols):
     """Sütun isimlerini temizler."""
     return [
@@ -90,11 +88,11 @@ def get_elkart_data(hat_no):
     if not dosyalar:
         return pd.DataFrame()
 
-    # Dosyaları tarihe göre sırala
+
     dosyalar.sort(reverse=True)
     df_list = []
 
-    # Hat numarası "4-A" gibi string gelebilir, int() zorlaması patlatır.
+
     hat_no_str = str(hat_no).strip()
 
     print(f"Hat {hat_no} için {len(dosyalar)} adet Elkart dosyası taranıyor...")
@@ -174,9 +172,7 @@ def get_tarife_dataframe():
     return None
 
 
-# =============================================================================
-# 1. HAT VIEWSET (Harita ve Yönetim İçin)
-# =============================================================================
+
 class HatViewSet(viewsets.ModelViewSet):
     """
     Hatların listelenmesi, detaylarının görüntülenmesi ve
@@ -185,9 +181,7 @@ class HatViewSet(viewsets.ModelViewSet):
     queryset = Hat.objects.all()
     serializer_class = HatSerializer
 
-    # ---------------------------------------------------------
-    # 1. HARİTA: ROTA ÇİZGİSİ
-    # ---------------------------------------------------------
+
     @action(detail=True, methods=['get'])
     def rota(self, request, pk=None):
         try:
@@ -198,9 +192,7 @@ class HatViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": f"Rota verisi alınamadı: {str(e)}"}, status=500)
 
-    # ---------------------------------------------------------
-    # 2. HARİTA: DURAK NOKTALARI
-    # ---------------------------------------------------------
+
     @action(detail=True, methods=['get'])
     def duraklar(self, request, pk=None):
         try:
@@ -211,16 +203,14 @@ class HatViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": f"Durak verisi alınamadı: {str(e)}"}, status=500)
 
-    # ---------------------------------------------------------
-    # 3. SAĞ PANEL: GÜNLÜK TARİFE
-    # ---------------------------------------------------------
+
     @action(detail=True, methods=['get'])
     def gunluk_tarife(self, request, pk=None):
         hat = self.get_object()
         hat_no = str(hat.ana_hat_no).strip()
         liste = []
 
-        # A) Dosyadan Normal Tarifeyi Çek
+
         try:
             df = get_tarife_dataframe()
             if df is not None:
@@ -249,7 +239,7 @@ class HatViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Tarife okuma hatası: {e}")
 
-        # B) Veritabanından EK SEFERLERİ Çek
+
         try:
             ek_seferler = EkSefer.objects.filter(hat=hat, aktif=True).order_by('kalkis_saati')
             for ek in ek_seferler:
@@ -265,12 +255,10 @@ class HatViewSet(viewsets.ModelViewSet):
 
         liste.sort(key=lambda x: x['saat'])
 
-        # --- HATA ÇÖZÜMÜ: BU SATIR EKSİKTİ ---
+
         return Response(liste)
 
-    # ---------------------------------------------------------
-    # 4. YÖNETİM: EK SEFER OLUŞTURMA
-    # ---------------------------------------------------------
+
     @action(detail=True, methods=['post'])
     def ek_sefer_olustur(self, request, pk=None):
         hat = self.get_object()
@@ -294,9 +282,7 @@ class HatViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": f"Bir hata oluştu: {str(e)}"}, status=500)
 
-    # ---------------------------------------------------------
-    # 5. YÖNETİM: EK SEFER SİLME (YENİ)
-    # ---------------------------------------------------------
+
     @action(detail=True, methods=['post'])
     def ek_sefer_sil(self, request, pk=None):
         """
@@ -307,7 +293,7 @@ class HatViewSet(viewsets.ModelViewSet):
             return Response({"error": "Sefer ID'si bulunamadı."}, status=400)
 
         try:
-            # Sadece bu hatta ait seferi sil (Güvenlik için)
+
             sefer = EkSefer.objects.get(id=ek_sefer_id, hat_id=pk)
             sefer.delete()
             return Response({"status": "Başarılı", "mesaj": "Ek sefer kaldırıldı."})
@@ -317,9 +303,6 @@ class HatViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=500)
 
 
-# =============================================================================
-# 2. DURAK VE TALEP YÖNETİMİ
-# =============================================================================
 class DurakViewSet(viewsets.ModelViewSet):
     queryset = Durak.objects.all()
     serializer_class = DurakSerializer
@@ -330,9 +313,6 @@ class TalepVerisiViewSet(viewsets.ModelViewSet):
     serializer_class = TalepVerisiSerializer
 
 
-# =============================================================================
-# 3. KAPASİTE VE İZDİHAM ANALİZİ (HatYonetimi.jsx Tablosu İçin)
-# =============================================================================
 class CapacityAnalysisView(APIView):
     def get(self, request, hat_no):
         try:
@@ -340,13 +320,13 @@ class CapacityAnalysisView(APIView):
             period = request.query_params.get('period', 'daily')
             OTOBUS_KAPASITESI = 80
 
-            # Periyot Çarpanı
+
             carpan = 0.5
             if period == 'weekly': carpan = 7
             elif period == 'monthly': carpan = 30
             elif period == 'yearly': carpan = 365
 
-            # 1. ARZ - PLANLI (CSV)
+
             sefer_sayilari = {}
             df_tarife = get_tarife_dataframe()
             if df_tarife is not None:
@@ -358,21 +338,21 @@ class CapacityAnalysisView(APIView):
                     df_hat['saat'] = df_hat[saat_col].apply(parse_time_column)
                     sefer_sayilari = df_hat[df_hat['saat'] >= 0].groupby('saat').size().to_dict()
 
-            # --- EKLENEN KISIM: EK SEFERLERİ DE SAY (DB) ---
+
             try:
-                # Veritabanında bu numaraya sahip hattı bul
+
                 hat_obj = Hat.objects.filter(ana_hat_no=hat_no).first()
                 if hat_obj:
                     ek_seferler = EkSefer.objects.filter(hat=hat_obj, aktif=True)
                     for ek in ek_seferler:
                         s = ek.kalkis_saati.hour
-                        # Planlı seferlerin üzerine ekle
+
                         sefer_sayilari[s] = sefer_sayilari.get(s, 0) + 1
             except Exception as e:
                 print(f"Ek sefer hatası: {e}")
             # ------------------------------------------------
 
-            # 2. TALEP (Elkart)
+
             df_elkart = get_elkart_data(hat_no)
             talep_ort = {}
             if not df_elkart.empty:
@@ -380,13 +360,13 @@ class CapacityAnalysisView(APIView):
                 valid = df_elkart[(df_elkart['saat'] >= 0) & (df_elkart['saat'] <= 23)]
                 talep_ort = (valid.groupby('saat')['yolcu'].sum() / 365).to_dict()
 
-            # 3. BİRLEŞTİRME
+
             sonuc = []
             for saat in range(6, 24):
                 gunluk_sefer = sefer_sayilari.get(saat, 0)
                 gunluk_yolcu = talep_ort.get(saat, 0)
 
-                # Çarpan Uygula
+
                 toplam_sefer = int(gunluk_sefer * carpan)
                 toplam_yolcu = int(round(gunluk_yolcu * carpan))
                 kapasite = toplam_sefer * OTOBUS_KAPASITESI
@@ -412,9 +392,6 @@ class CapacityAnalysisView(APIView):
             return Response({"hat_no": hat_no, "analiz": []})
 
 
-# =============================================================================
-# 4. YAPAY ZEKA TAHMİN VIEW'LARI
-# =============================================================================
 class PredictDemandView(APIView):
     def get(self, request, hat_no):
         if not demand_predictor:
@@ -422,7 +399,7 @@ class PredictDemandView(APIView):
 
         period = request.query_params.get('period', 'daily')
 
-        # 1 Yıl yerine 5 Yıllık veri iste (43.800 Saat)
+
         agg_map = {
             'daily': (24, 'hour'),
             'weekly': (168, 'day'),
@@ -477,9 +454,6 @@ class PredictTravelTimeView(APIView):
             return Response({"error": str(e)}, status=500)
 
 
-# =============================================================================
-# 5. GERÇEK ZAMANLI ARAÇ TAKİBİ (HARİTA İÇİN)
-# =============================================================================
 @api_view(['GET'])
 def aktif_otobusler(request):
     """
@@ -489,14 +463,14 @@ def aktif_otobusler(request):
     if not hat_id: return Response([])
 
     try:
-        # 1. Hat, Rota ve Durak Bilgilerini Çek
+
         hat_obj = Hat.objects.get(id=hat_id)
         hat_no = str(hat_obj.ana_hat_no).strip()
 
-        # Rota Noktaları
+
         rota_noktalari = list(HatGuzergah.objects.filter(hat=hat_obj).order_by('sira').values_list('enlem', 'boylam'))
 
-        # Durak Listesi
+
         duraklar = list(HatDurak.objects.filter(hat=hat_obj).order_by('sira').select_related('durak'))
         toplam_durak_sayisi = len(duraklar)
 
@@ -508,10 +482,10 @@ def aktif_otobusler(request):
         simdi = datetime.now()
         aktif_araclar = []
 
-        # 2. Sefer Listesini Oluştur (CSV + DB)
+
         sefer_listesi = []
 
-        # A) CSV Tarife
+
         df = get_tarife_dataframe()
         if df is not None:
             hat_col = next((c for c in df.columns if 'HAT' in c and 'NO' in c), None)
@@ -531,26 +505,26 @@ def aktif_otobusler(request):
                         except:
                             pass
 
-        # B) Ek Seferler
+
         ek_seferler = EkSefer.objects.filter(hat=hat_obj, aktif=True)
         for ek in ek_seferler:
             kalkis = datetime.combine(simdi.date(), ek.kalkis_saati)
             sefer_listesi.append({'zaman': kalkis, 'tip': 'ek', 'kod': f"EK-{ek.arac_no}", 'arac': ek.arac_no})
 
-        # 3. Konum ve Hedef Durak Hesapla
+
         for i, sefer in enumerate(sefer_listesi):
             gecen_sn = (simdi - sefer['zaman']).total_seconds()
 
-            # Araç yolda mı?
+
             if 0 <= gecen_sn <= SEFER_SURESI_SN:
                 oran = gecen_sn / SEFER_SURESI_SN
 
-                # Koordinat Hesabı
+
                 idx = int(toplam_nokta_sayisi * oran)
                 if idx >= toplam_nokta_sayisi: idx = toplam_nokta_sayisi - 1
                 lat, lng = rota_noktalari[idx]
 
-                # Hedef Durak Hesabı
+
                 hedef_isim = "Bilinmiyor"
                 if toplam_durak_sayisi > 0:
                     durak_idx = int(toplam_durak_sayisi * oran)
@@ -560,7 +534,7 @@ def aktif_otobusler(request):
 
                 kalan_dk = int((SEFER_SURESI_SN - gecen_sn) / 60)
 
-                # FIX: ID'nin sonuna sıra numarasını ekliyoruz (Örn: '2-23:00_154')
+
                 unique_id = f"{sefer['kod']}_{i}"
 
                 aktif_araclar.append({

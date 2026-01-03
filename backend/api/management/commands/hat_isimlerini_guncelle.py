@@ -21,13 +21,13 @@ class Command(BaseCommand):
         try:
             # 2. CSV OKUMA (Encoding ve Ayırıcı Denemeleri)
             try:
-                # Genelde noktalı virgül ve Türkçe karakter içerir
+
                 df = pd.read_csv(dosya_yolu, sep=';', encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
             except:
                 try:
                     df = pd.read_csv(dosya_yolu, sep=';', encoding='cp1254', dtype=str, on_bad_lines='skip')
                 except:
-                    # Virgül ile ayrılmış olabilir
+
                     df = pd.read_csv(dosya_yolu, sep=',', encoding='utf-8', dtype=str, on_bad_lines='skip')
 
             # Sütun isimlerini temizle (Boşlukları sil, büyüt)
@@ -47,9 +47,6 @@ class Command(BaseCommand):
             # 3. GÜNCELLEME İŞLEMİ
             guncellenen_sayisi = 0
 
-            # Veritabanındaki tüm hatları çek
-            # Not: Bir ana hattın (Örn: 56) birden fazla alt hattı (56-0, 56-1) olabilir.
-            # hatbilgisi.csv genelde ana hat bazındadır, bu yüzden o ana hatta bağlı tüm alt hatları aynı isimle güncelleyeceğiz.
 
             db_hatlar = Hat.objects.all()
 
@@ -59,14 +56,11 @@ class Command(BaseCommand):
                     csv_hat_no = str(row[col_no]).strip()
                     csv_hat_adi = str(row[col_ad]).strip()
 
-                    # Bu numaraya sahip veritabanındaki TÜM alt hatları bul (Örn: 56-0, 56-1)
-                    # Hat modelinizde 'ana_hat_no' alanı integer veya string olabilir, stringe çevirip kıyaslıyoruz.
 
-                    # Filtreleme: Ana hat numarası eşleşenleri getir
                     eslesen_hatlar = [h for h in db_hatlar if str(h.ana_hat_no).strip() == csv_hat_no]
 
                     for hat in eslesen_hatlar:
-                        # Eğer isim boşsa veya farklıysa güncelle
+
                         if not hat.ana_hat_adi or hat.ana_hat_adi != csv_hat_adi:
                             hat.ana_hat_adi = csv_hat_adi
                             hat.save()

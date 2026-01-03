@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from .models import Hat, HatGuzergah, HatDurak
 
-# JSON dosyasını bir kez yüklemek için global değişken
+
 ARAC_HAVUZU = None
 
 
@@ -35,7 +35,7 @@ def aktif_otobusler(request):
     if not hat_id: return Response([])
 
     try:
-        # Hız Çarpanı (Daha hızlı)
+
         HIZ_CARPANI = 0.5
 
         hat = Hat.objects.get(id=hat_id)
@@ -45,40 +45,36 @@ def aktif_otobusler(request):
 
         duraklar = list(HatDurak.objects.filter(hat=hat).order_by('sira'))
 
-        # --- GERÇEK ARAÇ SEÇİMİ ---
-        # Bu hat için CSV'de kayıtlı gerçek araçları bul
-        # Hat numarası string olarak eşleşmeli (örn: "10")
+
         ana_hat_no = str(hat.ana_hat_no).strip()
         gercek_araclar = ARAC_HAVUZU.get(ana_hat_no, [])
 
-        # Eğer bu hat için gerçek veri yoksa veya azsa, yedek format kullan
+
         if len(gercek_araclar) < 3:
             kullanilacak_araclar = [f"{ana_hat_no}-BUS-{i + 100}" for i in range(3)]
         else:
-            # Gerçek listeden rastgele 3-5 tane seç (Her seferinde aynıları gelmesin diye karıştırabilirsin)
-            # Ama sabit kalmaları simülasyon sürekliliği için daha iyi.
-            # Şimdilik listenin başındaki 3 taneyi alalım.
+
             kullanilacak_araclar = gercek_araclar[:5] if len(gercek_araclar) > 5 else gercek_araclar
 
         otobus_listesi = []
         now = time.time()
 
-        # Araçları rotaya dağıt
+
         for i, arac_no in enumerate(kullanilacak_araclar):
-            # Her aracı rotanın farklı bir yerine koy
+
             baslangic_farki = (len(rota) // len(kullanilacak_araclar)) * i
 
-            # Formül: (Şimdiki Zaman * Hız + Fark) % Toplam Yol
+
             current_index = int((now * HIZ_CARPANI + baslangic_farki)) % len(rota)
             lat, lng = rota[current_index]
 
-            # Hedef Durak Tahmini
+
             hedef_index = (current_index + 50) % len(duraklar) if duraklar else 0
             hedef_durak = duraklar[hedef_index].durak.durak_adi if duraklar else "Merkez"
 
             otobus_listesi.append({
-                "id": f"{hat.id}-{arac_no}",  # Unique ID
-                "arac_no": str(arac_no),  # Gerçek Araç No (Örn: 96, 696)
+                "id": f"{hat.id}-{arac_no}",
+                "arac_no": str(arac_no),
                 "enlem": lat,
                 "boylam": lng,
                 "kalan_sure": random.randint(1, 15),

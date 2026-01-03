@@ -8,7 +8,7 @@ class Command(BaseCommand):
     help = 'Eksik dosya durumunda sadece hatdurak.csv kullanarak sistemi kurar (Hatasız).'
 
     def handle(self, *args, **options):
-        # Dosya yolu
+
         base_path = r"C:\Users\Quantum\PycharmProjects\KonyaBusProject\veri_seti"
         dosya_hatdurak = os.path.join(base_path, "hatdurak.csv")
 
@@ -21,25 +21,25 @@ class Command(BaseCommand):
         Durak.objects.all().delete()
 
         self.stdout.write("2. hatdurak.csv okunuyor...")
-        # Delimiter noktalı virgül (;)
+
         df = pd.read_csv(dosya_hatdurak, sep=';', encoding='utf-8-sig', dtype=str)
         df.columns = df.columns.str.strip().str.lower()
 
-        # Sütun eşleştirme
+
         col_h_ana = 'ana_hat_no'
         col_h_alt = 'alt_hat_no'
         col_d_no = 'durak_no'
-        col_sira = 'sira'  # Dosyada 'sira' yazıyor
+        col_sira = 'sira'
         col_yon = 'istikamet'
 
         hat_cache = {f"{h.ana_hat_no}-{h.alt_hat_no}": h for h in Hat.objects.all()}
 
-        # --- DURAK OLUŞTURMA (Tekilleştirilmiş) ---
+
         self.stdout.write("3. Duraklar oluşturuluyor...")
         unique_duraks = df[col_d_no].unique()
         self.stdout.write(f"   -> {len(unique_duraks)} benzersiz durak bulundu.")
 
-        # Durak isimleri dosyada olmadığı için 'Durak X' veriyoruz
+
         durak_objs = [
             Durak(
                 durak_no=d,
@@ -50,17 +50,17 @@ class Command(BaseCommand):
             for d in unique_duraks
         ]
 
-        # ignore_conflicts=True ile kopyaları yoksayarak hızlıca kaydet
+
         Durak.objects.bulk_create(durak_objs, ignore_conflicts=True)
 
-        # ID'leri geri çek
+
         durak_db_map = {d.durak_no: d for d in Durak.objects.all()}
 
-        # --- İLİŞKİLERİ KURMA ---
+
         self.stdout.write("4. Hat-Durak bağlantıları kuruluyor...")
 
         rel_batch = []
-        # Aynı hat-durak-sıra kombinasyonunu tekrar eklememek için kontrol kümesi
+
         seen = set()
         count = 0
 
@@ -75,12 +75,11 @@ class Command(BaseCommand):
                 sira_val = int(row[col_sira])
 
                 if hat and durak:
-                    # Benzersizlik Anahtarı: HatID - SiraNo (Bir hattın 1. sırasına iki durak gelemez)
-                    # Veya daha sıkı kontrol: HatID - DurakID - SiraNo
+
                     key = (hat.id, sira_val)
 
                     if key in seen:
-                        continue  # Bu sıra numarası bu hat için zaten doldu, atla
+                        continue
                     seen.add(key)
 
                     rel_batch.append(HatDurak(

@@ -13,37 +13,35 @@ const handleLogout = () => {
     window.location.href = '/login';
   };
 const Sidebar = () => {
-  // Ekran genişliğine göre başlangıç durumu
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  // Pencere boyutu değişince mobil/desktop ayrımını yap
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) setShowMobile(false); // Masaüstüne dönünce mobil menüyü kapat
+      if (!mobile) setShowMobile(false);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Menü Linkleri
+
   const menuItems = [
     { path: "/", name: "Dashboard", icon: <LayoutDashboard size={20} /> },
     { path: "/harita", name: "Canlı Harita", icon: <Map size={20} /> },
     { path: "/hat-yonetimi", name: "Hat Yönetimi", icon: <List size={20} /> },
   ];
 
-  // Alt Menü (Ayarlar vb.)
+
   const bottomItems = [
     { path: "/ayarlar", name: "Ayarlar", icon: <Settings size={20} /> },
   ];
 
-  // --- RENDER ---
 
-  // 1. MOBİL MENÜ BUTONU (Sadece Mobilde Görünür)
   const MobileToggle = () => (
     <Button
       variant="primary"
@@ -54,13 +52,13 @@ const Sidebar = () => {
     </Button>
   );
 
-  // 2. SIDEBAR İÇERİĞİ
+
   const SidebarContent = () => (
     <div className="d-flex flex-column h-100 text-white">
-      {/* LOGO ALANI */}
+
       <div className={`d-flex align-items-center p-3 ${isCollapsed ? 'justify-content-center' : 'justify-content-between'}`} style={{height: '70px'}}>
 
-        {/* Logo / Başlık */}
+
         {!isCollapsed && (
           <div className="d-flex align-items-center animate-fade-in">
             <div className="bg-primary text-white rounded p-1 me-2 fw-bold d-flex align-items-center justify-content-center" style={{width: 32, height: 32}}>
@@ -70,7 +68,7 @@ const Sidebar = () => {
           </div>
         )}
 
-        {/* Desktop Collapse Butonu */}
+
         <Button
           variant="link"
           className="text-white-50 p-0 d-none d-md-block hover-white"
@@ -79,7 +77,7 @@ const Sidebar = () => {
           {isCollapsed ? <ChevronRight size={24}/> : <ChevronLeft size={24}/>}
         </Button>
 
-        {/* Mobil Kapatma Butonu */}
+
         <Button
           variant="link"
           className="text-white d-md-none ms-auto"
@@ -91,7 +89,7 @@ const Sidebar = () => {
 
       <hr className="border-secondary mx-3 my-0 opacity-25"/>
 
-      {/* MENÜ LİSTESİ */}
+
       <div className="flex-grow-1 py-3 overflow-y-auto">
         <div className="d-flex flex-column gap-1 px-2">
           {menuItems.map((item, idx) => (
@@ -100,13 +98,13 @@ const Sidebar = () => {
         </div>
       </div>
 
-      {/* ALT MENÜ */}
+
       <div className="p-2 border-top border-secondary border-opacity-25 bg-black bg-opacity-25">
         {bottomItems.map((item, idx) => (
            <NavItem key={idx} item={item} isCollapsed={isCollapsed} />
         ))}
 
-        {/* Çıkış Butonu (Örnek) */}
+
         <div onClick={handleLogout} className="...">
       <LogOut size={20} />
       {!isCollapsed && <span className="ms-3 fw-bold">Çıkış Yap</span>}
@@ -115,7 +113,6 @@ const Sidebar = () => {
     </div>
   );
 
-  // Sidebar Wrapper Stili
   const sidebarStyle = {
     width: isMobile ? '280px' : (isCollapsed ? '80px' : '260px'),
     height: '100vh',
@@ -128,17 +125,12 @@ const Sidebar = () => {
     boxShadow: '4px 0 24px rgba(0,0,0,0.1)'
   };
 
-  // Overlay (Sadece Mobilde arka planı karartmak için)
+
   const overlayStyle = {
     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1039,
     display: (isMobile && showMobile) ? 'block' : 'none'
   };
-
-  // İçerik Kaydırma (Main Content Margin)
-  // Bu stil App.jsx içinde kullanılmalı ama burada sidebar'ın kapladığı alanı göstermek için
-  // App.jsx'e bir prop veya class ile haber vermek gerekir.
-  // Şimdilik sadece Sidebar componentini yapıyoruz.
 
   return (
     <>
@@ -148,7 +140,7 @@ const Sidebar = () => {
         <SidebarContent />
       </div>
 
-      {/* Masaüstünde içerik sola kaymasın diye boş div (Spacer) */}
+
       {!isMobile && (
         <div style={{
             width: isCollapsed ? '80px' : '260px',
@@ -160,7 +152,7 @@ const Sidebar = () => {
   );
 };
 
-// YARDIMCI BİLEŞEN: NavItem
+
 const NavItem = ({ item, isCollapsed, onClick }) => {
   const content = (
     <NavLink
@@ -186,7 +178,7 @@ const NavItem = ({ item, isCollapsed, onClick }) => {
     </NavLink>
   );
 
-  // Daraltılmış modda Tooltip göster
+
   if (isCollapsed) {
     return (
       <OverlayTrigger

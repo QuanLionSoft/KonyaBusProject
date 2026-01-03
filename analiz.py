@@ -1,20 +1,20 @@
 import pandas as pd
 import os
 
-# Dosyaların bulunduğu klasör yolu
+
 DATA_PATH = 'veri_seti'
 
 
 def veri_analizi_yap():
     print("--- Veri Analizi Başlıyor ---\n")
 
-    # 1. Tarifeler dosyasındaki Hat Sayısını Bulma
+
     try:
-        # Excel dosyasının CSV formatında kaydedildiğini varsayıyoruz
+
         tarifeler_path = os.path.join(DATA_PATH, 'tarifeler.xlsx - Sheet1.csv')
         df_tarifeler = pd.read_csv(tarifeler_path, sep=',')
 
-        # 'Hat No' sütunundaki benzersiz (unique) değerleri say
+
         toplam_hat = df_tarifeler['Hat No'].nunique()
         hatlar = df_tarifeler['Hat No'].unique()
 
@@ -23,7 +23,7 @@ def veri_analizi_yap():
     except Exception as e:
         print(f"❌ Tarifeler dosyası okunurken hata: {e}\n")
 
-    # 2. Diğer Dosyaların Kontrolü (Sütun yapılarını görmek için)
+
     dosyalar = [
         ('hatbilgisi.csv', ';'),
         ('guzergah.csv', ';'),

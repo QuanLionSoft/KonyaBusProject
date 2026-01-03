@@ -5,7 +5,7 @@ import joblib
 import glob
 from datetime import datetime, timedelta
 
-# --- KÜTÜPHANE KONTROLLERİ ---
+
 try:
     from prophet import Prophet
 except ImportError:
@@ -25,7 +25,7 @@ except ImportError:
 
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 
-# --- DİZİN AYARLARI ---
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 VERI_SETI_KLASORU = os.path.join(PROJECT_ROOT, 'veri_seti')
@@ -35,9 +35,7 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
-# =============================================================================
-# 1. HYBRID DEMAND PREDICTOR (PROPHET + LSTM) - YOLCU TALEP TAHMİNİ
-# =============================================================================
+
 class DemandPredictor:
     def _clean_hat_no(self, val):
         """Hat numarasını standartlaştırır (örn: '4.0' -> '4')."""
@@ -74,7 +72,7 @@ class DemandPredictor:
                                          low_memory=False)
 
                 for temp in chunk_iter:
-                    # Sütunları Temizle
+
                     temp.columns = [str(c).strip().upper().replace('İ', 'I').replace(' ', '_') for c in temp.columns]
 
                     hat_col = next((c for c in temp.columns if 'HAT' in c and 'NO' in c), None)
@@ -83,7 +81,7 @@ class DemandPredictor:
                     yolcu_col = next((c for c in temp.columns if 'BINIS' in c or 'YOLCU' in c or 'SAYI' in c), None)
 
                     if hat_col and tarih_col and saat_col:
-                        # Hat No Temizliği
+
                         temp['hat_clean'] = temp[hat_col].apply(self._clean_hat_no)
 
                         filtered = temp[temp['hat_clean'] == hedef_hat].copy()
@@ -107,11 +105,11 @@ class DemandPredictor:
             print(f"[ML] Hat {hat_no} için HİÇ VERİ BULUNAMADI. CSV dosyalarındaki Hat No sütununu kontrol edin.")
             return None
 
-        # --- VERİ BİRLEŞTİRME ---
+
         try:
             full_df = pd.concat(df_list, ignore_index=True)
 
-            # Saat Temizliği
+
             def temizle_saat(val):
                 s = str(val).strip()
                 if '.' in s and ':' not in s: s = s.split('.')[0]
@@ -125,7 +123,7 @@ class DemandPredictor:
             full_df['clean_hour'] = full_df['ds_hour'].apply(temizle_saat)
             full_df['ds_str'] = full_df['ds_date'].astype(str) + ' ' + full_df['clean_hour']
 
-            # Datetime Dönüşümü
+
             full_df['ds'] = pd.to_datetime(full_df['ds_str'], dayfirst=True, errors='coerce')
             full_df = full_df.dropna(subset=['ds'])
 
@@ -148,20 +146,19 @@ class DemandPredictor:
 
         print(f"[ML] Hat {hat_no} için {len(df)} satır veri ile eğitim başlıyor...")
 
-        # 2. Aggregation
+
         df_agg = df.groupby('ds')['y'].sum().reset_index().sort_values('ds')
         df_agg = df_agg.set_index('ds').resample('H').sum().fillna(0).reset_index()
 
         try:
-            # --- GERÇEKÇİLİK AYARLARI ---
+
             model_p = Prophet(
-                daily_seasonality=True,  # Günlük döngüyü (Sabah/Akşam pikleri) zorla
-                weekly_seasonality=True,  # Haftalık döngüyü (Hafta sonu düşüşü) zorla
+                daily_seasonality=True,
+                weekly_seasonality=True,
                 yearly_seasonality=True,
-                # changepoint_prior_scale=0.001: Trendi çok katı yapar.
-                # Yani veri eski olsa bile 1 yıl sonrasına "düşüş" veya "yükseliş" abartılı yansımaz.
+
                 changepoint_prior_scale=0.001,
-                # seasonality_prior_scale=10.0: Saatlik dalgalanmaları (sabah yoğunluğu vb.) belirginleştirir.
+
                 seasonality_prior_scale=10.0
             )
 
@@ -200,20 +197,20 @@ class DemandPredictor:
                 else:
                     return None
 
-        # Tahmin (Bugünden İtibaren)
+
         try:
-            # Şu anki saati al, dakikayı sıfırla
+
             start_date = datetime.now().replace(minute=0, second=0, microsecond=0)
 
-            # Gelecek tarihleri oluştur
+
             future_dates = pd.date_range(start=start_date, periods=hours, freq='H')
             future = pd.DataFrame({'ds': future_dates})
 
-            # Prophet Tahmini
-            forecast = model_p.predict(future)
-            forecast['yhat'] = forecast['yhat'].clip(lower=0)  # Negatifleri temizle
 
-            # Sonuçları Grupla
+            forecast = model_p.predict(future)
+            forecast['yhat'] = forecast['yhat'].clip(lower=0)
+
+
             if agg == 'day':
                 result = forecast.resample('D', on='ds')['yhat'].sum().reset_index()
             elif agg == 'month':
@@ -221,7 +218,7 @@ class DemandPredictor:
             else:
                 result = forecast[['ds', 'yhat']].copy()
 
-            # Tarihleri string formatına çevir (Frontend için garanti olsun)
+
             result['ds'] = result['ds'].apply(lambda x: x.isoformat())
 
             return result.to_dict('records')
@@ -233,9 +230,7 @@ class DemandPredictor:
             return None
 
 
-# =============================================================================
-# 2. HYBRID TRAVEL TIME PREDICTOR
-# =============================================================================
+
 class TravelTimePredictor:
     def __init__(self):
         self.xgb_model = None
@@ -267,7 +262,7 @@ class TravelTimePredictor:
                 pass
 
     def prepare_data(self):
-        # Önceki kodunuzdakiyle aynı mantık, sadece dosya okuma kontrollerini ekleyin
+
         dosyalar = glob.glob(os.path.join(VERI_SETI_KLASORU, "otobusdurakvaris*.csv"))
         if not dosyalar: return None
 
@@ -341,6 +336,6 @@ class TravelTimePredictor:
             return 60
 
 
-# --- SINGLETON ---
+
 demand_predictor = DemandPredictor()
 travel_predictor = TravelTimePredictor()

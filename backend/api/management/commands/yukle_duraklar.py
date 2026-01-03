@@ -19,24 +19,24 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.WARNING("--- DURAK YÜKLEME BAŞLIYOR ---"))
 
-        # 1. TEMİZLİK (Önce ilişkileri, sonra durakları sil)
+
         self.stdout.write("1. Eski veriler temizleniyor...")
         HatDurak.objects.all().delete()
         Durak.objects.all().delete()
 
-        # 2. DURAKLARI YÜKLE (durak.csv)
+
         self.stdout.write(f"2. Duraklar yükleniyor ({dosya_durak})...")
         df_durak = pd.read_csv(dosya_durak, sep=';', encoding='utf-8-sig', dtype=str)
         df_durak.columns = df_durak.columns.str.strip().str.lower()
 
-        # Sütun isimlerini bul
+
         col_no = 'durak_no' if 'durak_no' in df_durak.columns else 'istasyon_no'
         col_adi = 'durak_adi' if 'durak_adi' in df_durak.columns else 'adi'
         col_lat = 'enlem' if 'enlem' in df_durak.columns else 'y'
         col_lng = 'boylam' if 'boylam' in df_durak.columns else 'x'
 
         durak_batch = []
-        durak_map = {}  # ID eşleştirme için
+        durak_map = {}
 
         for _, row in df_durak.iterrows():
             try:
@@ -67,10 +67,10 @@ class Command(BaseCommand):
             Durak.objects.bulk_create(durak_batch)
             self.stdout.write(f"   -> {len(durak_batch)} adet durak oluşturuldu.")
 
-        # Veritabanından ID'leri çek (HatDurak için lazım)
+
         durak_db_map = {d.durak_no: d for d in Durak.objects.all()}
 
-        # 3. HAT-DURAK İLİŞKİSİNİ YÜKLE (hatdurak.csv)
+
         self.stdout.write(f"3. Hat-Durak bağlantıları kuruluyor ({dosya_hatdurak})...")
         df_rel = pd.read_csv(dosya_hatdurak, sep=';', encoding='utf-8-sig', dtype=str)
         df_rel.columns = df_rel.columns.str.strip().str.lower()
@@ -86,11 +86,11 @@ class Command(BaseCommand):
 
         for _, row in df_rel.iterrows():
             try:
-                # Hattı Bul
+
                 h_key = f"{str(row[col_h_ana]).strip()}-{str(row[col_h_alt]).strip()}"
                 hat = hat_cache.get(h_key)
 
-                # Durağı Bul
+
                 d_no = str(row[col_d_no]).strip()
                 durak = durak_db_map.get(d_no)
 

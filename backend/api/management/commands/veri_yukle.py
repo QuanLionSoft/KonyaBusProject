@@ -10,7 +10,7 @@ class Command(BaseCommand):
     help = 'Konya Otobüs Verilerini Hata Ayıklayarak Yükler'
 
     def handle(self, *args, **options):
-        # Dosya yolu
+
         base_dir = r"C:\Users\Quantum\PycharmProjects\KonyaBusProject\veri_seti"
         self.stdout.write(f"📂 Veri Kaynağı: {base_dir}")
 

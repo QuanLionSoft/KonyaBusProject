@@ -4,10 +4,10 @@ import django
 from django.conf import settings
 
 
-# 1. TEMİZLİK İŞLEMİ
+
 def temizlik_yap():
     print("1. Migration temizliği yapılıyor...")
-    # api/migrations klasöründeki eski dosyaları temizle (0001_initial.py vb.)
+
     mig_path = os.path.join('api', 'migrations')
     if os.path.exists(mig_path):
         for f in os.listdir(mig_path):
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     if not temizlik_yap():
         sys.exit(1)
 
-    # 2. DJANGO ORTAMINI BAŞLAT
+
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
     django.setup()
 
@@ -37,17 +37,17 @@ if __name__ == "__main__":
 
     try:
         print("\n2. MySQL Veritabanı tabloları oluşturuluyor...")
-        # Önce tabloları oluştur
+
         call_command('makemigrations', 'api')
         call_command('migrate')
 
         print("\n3. CSV Verileri yükleniyor (Bu işlem 1-2 dakika sürebilir)...")
-        # Veri yükleme komutunu çalıştır
+
         call_command('veri_yukle')
 
         print("\n4. Yeni Admin Kullanıcısı oluşturuluyor...")
         User = get_user_model()
-        # Eğer admin varsa şifresini güncelle, yoksa oluştur
+
         if User.objects.filter(username='admin').exists():
             user = User.objects.get(username='admin')
             user.set_password('admin')

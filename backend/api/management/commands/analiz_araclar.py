@@ -13,11 +13,11 @@ class Command(BaseCommand):
     help = 'Yapay Zeka Modellerini Eğitir'
 
     def add_arguments(self, parser):
-        # --egit parametresini sisteme tanıtıyoruz
+
         parser.add_argument('--egit', action='store_true', help='Talep tahmin modellerini eğitir')
 
     def handle(self, *args, **options):
-        # Eğer --egit parametresi varsa burası çalışır
+
         if options['egit']:
             if not demand_predictor:
                 self.stdout.write(self.style.ERROR("HATA: ml_models.py yüklenemedi veya Prophet kütüphanesi eksik."))

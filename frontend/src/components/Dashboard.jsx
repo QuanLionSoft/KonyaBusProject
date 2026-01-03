@@ -13,7 +13,7 @@ import {
   Activity, LayoutDashboard, PieChart, List
 } from 'lucide-react';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; // <-- DEĞİŞİKLİK BURADA
+import autoTable from 'jspdf-autotable';
 import { Download } from 'lucide-react';
 
 
@@ -21,17 +21,16 @@ import { Download } from 'lucide-react';
 
 
 const Dashboard = () => {
-  // --- STATE TANIMLARI ---
+
   const [hatlar, setHatlar] = useState([]);
   const [selectedLine, setSelectedLine] = useState('');
   const [period, setPeriod] = useState('daily');
   const [activeTab, setActiveTab] = useState('charts');
 
-  // VERİ STATE'LERİ
+
   const [predictions, setPredictions] = useState([]);
   const [capacityData, setCapacityData] = useState([]);
 
-  // AYRI LOADING STATE'LERİ (EŞ ZAMANLI HİSSİYAT İÇİN)
   const [loadingProphet, setLoadingProphet] = useState(false);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
 
@@ -44,7 +43,7 @@ const Dashboard = () => {
 const downloadReport = () => {
         const doc = new jsPDF();
 
-        // 1. Periyot İsmini Türkçeleştir (Dosya ve Başlık için)
+
         const periodLabels = {
             'daily': 'GUNLUK',
             'weekly': 'HAFTALIK',
@@ -53,7 +52,7 @@ const downloadReport = () => {
         };
         const currentLabel = periodLabels[period] || 'GENEL'; // 'period' state'inden gelir
 
-        // 2. Dinamik Başlık
+
         doc.setFontSize(18);
         doc.text(`KonyaBus - ${currentLabel} Hat Analiz Raporu`, 14, 22);
 
@@ -62,7 +61,7 @@ const downloadReport = () => {
         doc.text(`Hat: ${selectedLine}`, 14, 36);
         doc.text(`Periyot: ${currentLabel}`, 14, 42); // Raporun içine de ekledik
 
-        // Tablo Verisini Hazırla
+
         const tableColumn = ["Saat", "Sefer Sayisi", "Yolcu Tahmini", "Kapasite", "Doluluk %"];
         const tableRows = [];
 
@@ -77,18 +76,18 @@ const downloadReport = () => {
             tableRows.push(rowData);
         });
 
-        // Tabloyu Çiz
+
         autoTable(doc, {
             head: [tableColumn],
             body: tableRows,
             startY: 48,
         });
 
-        // 3. Dinamik Dosya İsmi (Örn: Rapor_AYLIK_4-A_2025-12-24.pdf)
+
         const dateStr = new Date().toISOString().slice(0,10);
         doc.save(`Rapor_${currentLabel}_${selectedLine}_${dateStr}.pdf`);
     };
-  // 1. Hat Listesini Çek
+
   useEffect(() => {
     axios.get('http://127.0.0.1:8000/api/hatlar/')
       .then(res => {
@@ -98,16 +97,15 @@ const downloadReport = () => {
       .catch(err => console.error("Hatlar alınamadı:", err));
   }, []);
 
-  // 2. Seçili Hat Değişince Verileri Çek (PARALEL ÇALIŞMA)
+
   useEffect(() => {
     if (!selectedLine) return;
 
-    // --- A) KAPASİTE VERİSİNİ ÇEK (HIZLI) ---
     const fetchCapacity = async () => {
         setLoadingCapacity(true);
         setCapacityData([]);
         try {
-            // DEĞİŞİKLİK BURADA: Sonuna /?period=${period} eklendi.
+
             const res = await axios.get(`http://127.0.0.1:8000/api/capacity-analysis/${selectedLine}/?period=${period}`);
             setCapacityData(res.data.analiz || []);
         } catch (e) {
@@ -117,7 +115,7 @@ const downloadReport = () => {
         }
     };
 
-    // --- B) PROPHET VERİSİNİ ÇEK (YAVAŞ) ---
+
     const fetchProphet = async () => {
         setLoadingProphet(true);
         setPredictions([]);
@@ -145,13 +143,13 @@ const downloadReport = () => {
         }
     };
 
-    // İkisini de başlat
+
     fetchCapacity();
     fetchProphet();
 
   }, [selectedLine, period]);
 
-  // İstatistikleri Güncelle (Her iki veri de değiştikçe)
+
   useEffect(() => {
     let total = 0, maxVal = 0, risky = '-', avgOcc = 0;
 
@@ -221,7 +219,7 @@ const downloadReport = () => {
         </Card.Body>
       </Card>
 
-      {/* KPI KARTLARI */}
+
       <Row className="g-3 mb-4">
         <Col md={3}>
             <KpiCard title="Toplam Tahmin" val={stats.totalDemand.toLocaleString()} icon={<Users/>} color="primary" />
@@ -237,12 +235,12 @@ const downloadReport = () => {
         </Col>
       </Row>
 
-      {/* ANA İÇERİK */}
+
       <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4 border-bottom-0">
             <Tab eventKey="charts" title={<><Activity size={18} className="me-2"/>Grafik Analizi</>}>
                 <Row className="g-4">
 
-                    {/* --- SOL GRAFİK: PROPHET TAHMİNİ --- */}
+
                     <Col lg={8}>
                         <Card className="h-100 border-0 shadow-sm">
                             <Card.Header className="bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
@@ -282,7 +280,7 @@ const downloadReport = () => {
                         </Card>
                     </Col>
 
-                    {/* --- SAĞ GRAFİK: KAPASİTE ANALİZİ --- */}
+
                     <Col lg={4}>
                         <Card className="h-100 border-0 shadow-sm">
                             <Card.Header className="bg-white py-3 border-bottom d-flex justify-content-between align-items-center">

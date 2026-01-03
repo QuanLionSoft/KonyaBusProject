@@ -9,7 +9,7 @@ const Ayarlar = () => {
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    // LocalStorage'dan bilgileri çek
+
     setUsername(localStorage.getItem('username') || 'Kullanıcı');
     const r = localStorage.getItem('role') || 'user';
     setRole(r === 'operator' ? 'Operatör (Yönetici)' : 'Yolcu (Kullanıcı)');
@@ -28,7 +28,7 @@ const Ayarlar = () => {
       {msg && <Alert variant="success">{msg}</Alert>}
 
       <Row>
-        {/* PROFİL KARTI */}
+
         <Col md={6} className="mb-4">
           <Card className="border-0 shadow-sm h-100">
             <Card.Header className="bg-white fw-bold py-3 border-bottom-0">
@@ -50,7 +50,7 @@ const Ayarlar = () => {
           </Card>
         </Col>
 
-        {/* GÜVENLİK KARTI */}
+
         <Col md={6} className="mb-4">
           <Card className="border-0 shadow-sm h-100">
             <Card.Header className="bg-white fw-bold py-3 border-bottom-0">

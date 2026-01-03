@@ -59,33 +59,33 @@ class Command(BaseCommand):
                     hat = hat_cache.get(hat_no_raw)
 
                     if hat:
-                        # --- TARİH FORMATI DÜZELTME KISMI ---
+
                         tarih_saat_str = tarih_raw
 
-                        # Eğer saat ayrı sütundaysa birleştir
+
                         if col_saat and pd.notna(row[col_saat]):
                             saat_part = str(row[col_saat]).strip()
                             tarih_saat_str = f"{tarih_raw} {saat_part}"
 
                         tarih_saat = None
 
-                        # Olası tüm formatları dene (Senin hatan buradaydı)
+
                         formatlar = [
-                            '%Y-%m-%d %H',  # 2021-12-21 11 (Senin CSV'deki format bu!)
-                            '%Y-%m-%d %H:%M:%S',  # 2021-12-21 11:30:00
-                            '%d.%m.%Y %H:%M:%S',  # 21.12.2021 11:30:00
-                            '%d.%m.%Y %H',  # 21.12.2021 11
-                            '%Y-%m-%d',  # Sadece tarih
+                            '%Y-%m-%d %H',
+                            '%Y-%m-%d %H:%M:%S',
+                            '%d.%m.%Y %H:%M:%S',
+                            '%d.%m.%Y %H',
+                            '%Y-%m-%d',
                         ]
 
                         for fmt in formatlar:
                             try:
                                 tarih_saat = datetime.strptime(tarih_saat_str, fmt)
-                                break  # Başarılı olursa döngüden çık
+                                break
                             except ValueError:
                                 continue
 
-                        # Eğer hiçbir format uymadıysa atla
+
                         if not tarih_saat:
                             continue
 
@@ -96,7 +96,7 @@ class Command(BaseCommand):
                         ))
                         count += 1
 
-                    # Batch Kaydetme
+
                     if len(batch) >= 5000:
                         TalepVerisi.objects.bulk_create(batch)
                         batch = []

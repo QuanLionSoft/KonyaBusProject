@@ -4,7 +4,7 @@ import { Container, Card, Form, Button, Alert } from 'react-bootstrap';
 import { UserPlus } from 'lucide-react';
 
 const Register = () => {
-  // Varsayılan rol: user
+
   const [formData, setFormData] = useState({ username: '', email: '', password: '', role: 'user' });
   const [msg, setMsg] = useState({ type: '', text: '' });
 

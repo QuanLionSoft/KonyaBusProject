@@ -8,7 +8,7 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // Giriş Türü: 'operator' veya 'user'
+
   const [loginType, setLoginType] = useState('operator');
 
   const handleLogin = async (e) => {
@@ -20,9 +20,9 @@ const Login = () => {
         password
       });
 
-      const role = res.data.role; // Backend'den gelen rol
+      const role = res.data.role;
 
-      // Güvenlik Kontrolü: Operatör panelinden giren 'user' ise uyarı ver
+
       if (loginType === 'operator' && role !== 'operator') {
          setError('Yetkisiz Giriş! Bu panel sadece Operatörler içindir.');
          return;
@@ -33,11 +33,11 @@ const Login = () => {
       localStorage.setItem('username', username);
       localStorage.setItem('role', role);
 
-      // Rola göre yönlendirme
+
       if (role === 'operator') {
-          window.location.href = '/'; // Dashboard
+          window.location.href = '/';
       } else {
-          window.location.href = '/harita'; // Normal kullanıcı Harita'ya gider
+          window.location.href = '/harita';
       }
 
     } catch (err) {

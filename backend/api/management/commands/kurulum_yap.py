@@ -19,9 +19,7 @@ class Command(BaseCommand):
         HatDurak.objects.all().delete()
         HatTarife.objects.all().delete()
         Durak.objects.all().delete()
-        # Hatları silmiyoruz, gerekirse create_or_get yapacağız
 
-        # --- 1. ROTA YÜKLEME (MAVİ ÇİZGİ) ---
         self.stdout.write("1. Rota (guzergah.csv) yükleniyor...")
         if os.path.exists(dosya_guzergah):
             df_rota = pd.read_csv(dosya_guzergah, sep=';', encoding='utf-8-sig', dtype=str)
@@ -30,7 +28,7 @@ class Command(BaseCommand):
             hatlar_cache = {f"{h.ana_hat_no}-{h.alt_hat_no}": h for h in Hat.objects.all()}
             rota_batch = []
 
-            # Sütun adlarını belirle (guzergah.csv başlıklarına göre)
+
             col_enlem = 'enlem' if 'enlem' in df_rota.columns else 'y'
             col_boylam = 'boylam' if 'boylam' in df_rota.columns else 'x'
 
@@ -59,7 +57,7 @@ class Command(BaseCommand):
                     enlem = fix_coord(row[col_enlem])
                     boylam = fix_coord(row[col_boylam])
 
-                    # Ters koordinat kontrolü
+
                     if (31 < enlem < 35) and (36 < boylam < 39): enlem, boylam = boylam, enlem
 
                     rota_batch.append(HatGuzergah(hat=hat, sira=count, enlem=enlem, boylam=boylam))
@@ -75,7 +73,7 @@ class Command(BaseCommand):
             if rota_batch: HatGuzergah.objects.bulk_create(rota_batch)
             self.stdout.write("   -> Rota yüklendi.")
 
-        # --- 2. DURAKLARI VE İSTİKAMETİ YÜKLE ---
+
         self.stdout.write("2. Duraklar ve İstikametler yükleniyor...")
         if os.path.exists(dosya_hatdurak):
             df_durak = pd.read_csv(dosya_hatdurak, sep=';', encoding='utf-8-sig', dtype=str)
@@ -118,7 +116,7 @@ class Command(BaseCommand):
 
         # --- 3. KOORDİNATLARI TAMİR ET (Durakları Çizgiye Oturt) ---
         self.stdout.write("3. Duraklar haritaya yerleştiriliyor...")
-        # Basit mantık: Rotanın başı, ortası ve sonuna durakları yay
+
         for hat in Hat.objects.all():
             rota = list(hat.guzergah_noktalari.all().order_by('sira'))
             duraklar = list(HatDurak.objects.filter(hat=hat).order_by('sira'))
@@ -143,9 +141,9 @@ class Command(BaseCommand):
                 tarife_batch = []
                 for _, row in df_tarife.iterrows():
                     try:
-                        # CSV yapısı: Hat No, Alt Hat No...
+
                         ana = str(row.iloc[0]).strip()
-                        # Alt hat sütunu bazen "0 - HOCAFAKIH" gibi geliyor, sadece 0'ı alalım
+
                         alt_raw = str(row.iloc[1])
                         alt = alt_raw.split(' ')[0].split('-')[0].strip()
 

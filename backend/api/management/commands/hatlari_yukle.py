@@ -14,8 +14,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.ERROR('--- ⚠️ DİKKAT: VERİTABANI TAMAMEN SIFIRLANIYOR ---'))
 
-        # 1. TEMİZLİK: Önce bağlı verileri (Child), sonra ana verileri (Parent) sil
-        # Hata almamak için silme sırası önemlidir.
+
         TalepVerisi.objects.all().delete()
         DurakVaris.objects.all().delete()
         Hat.objects.all().delete()
@@ -27,9 +26,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"HATA: Veri seti klasörü bulunamadı: {data_path}"))
             return
 
-        # ---------------------------------------------------------
-        # 2. ADIM: HATLARIN YÜKLENMESİ
-        # ---------------------------------------------------------
+
         try:
             dosya_adi = 'hatbilgisi.csv'
             dosya_yolu = os.path.join(data_path, dosya_adi)
@@ -69,9 +66,7 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'Hatlar yüklenirken hata: {e}'))
 
-        # ---------------------------------------------------------
-        # 3. ADIM: DURAKLARIN YÜKLENMESİ
-        # ---------------------------------------------------------
+
         try:
             dosya_adi = 'hatdurak.csv'
             dosya_yolu = os.path.join(data_path, dosya_adi)

@@ -28,8 +28,6 @@ class Command(BaseCommand):
                 continue
 
             # 3. MATEMATİKSEL DAĞITIM
-            # Örnek: 1000 noktalı bir yolda 10 durak varsa, durakları her 100. noktaya koy.
-            # Böylece duraklar çizginin üzerine tam oturur.
 
             adim = rota_uzunlugu / durak_sayisi
 

@@ -8,8 +8,7 @@ class Command(BaseCommand):
     help = 'durak.csv dosyasından gerçek durak isimlerini okuyup veritabanını günceller.'
 
     def handle(self, *args, **options):
-        # 1. DOSYA YOLUNU GARANTİYE ALALIM
-        # yukle_duraklar.py dosyasındaki çalışan yolu kullanıyoruz:
+
         base_path = r"C:\Users\Quantum\PycharmProjects\KonyaBusProject\veri_seti"
         csv_path = os.path.join(base_path, 'hatdurak.csv')
 
@@ -25,9 +24,9 @@ class Command(BaseCommand):
         self.stdout.write("Dosya bulundu, okuma başlıyor...")
 
         try:
-            # 2. CSV'yi Oku (Ayırıcı ; veya , olabilir)
+
             try:
-                # Önce noktalı virgül dene (Genelde Türkçe CSV'ler böyledir)
+
                 df = pd.read_csv(csv_path, sep=';', encoding='utf-8-sig', on_bad_lines='skip', dtype=str)
                 if len(df.columns) < 2:  # Eğer tek kolon okuduysa ayırıcı yanlıştır
                     raise ValueError
@@ -49,7 +48,7 @@ class Command(BaseCommand):
             # 4. Güncelleme Döngüsü
             updated_count = 0
             # Veritabanındaki tüm durakları çek (Kod -> Durak Nesnesi eşlemesi)
-            # durak_no string olduğu için veritabanından da string olarak kıyaslayacağız
+
             db_duraklar = {str(d.durak_no).strip(): d for d in Durak.objects.all()}
 
             print(f"Veritabanında {len(db_duraklar)} durak var. CSV'de {len(df)} satır var.")

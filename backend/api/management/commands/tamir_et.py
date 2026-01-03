@@ -8,16 +8,16 @@ class Command(BaseCommand):
     help = 'Veritabanını temizler, rotayı yükler ve durakları rotaya oturtur (FULL TAMİR).'
 
     def handle(self, *args, **options):
-        # DOSYA YOLUNU KENDİNE GÖRE KONTROL ET!
+
         dosya_yolu = r"C:\Users\Quantum\PycharmProjects\KonyaBusProject\veri_seti\guzergah.csv"
 
         self.stdout.write(self.style.WARNING("--- MASTER TAMİR BAŞLIYOR ---"))
 
-        # 1. TEMİZLİK
+
         self.stdout.write("1. Eski ve bozuk veriler temizleniyor...")
         HatGuzergah.objects.all().delete()
 
-        # 2. ROTA YÜKLEME
+
         self.stdout.write("2. Rota verisi yükleniyor...")
         if not os.path.exists(dosya_yolu):
             self.stdout.write(self.style.ERROR(f"DOSYA BULUNAMADI: {dosya_yolu}"))
@@ -26,7 +26,7 @@ class Command(BaseCommand):
         df = pd.read_csv(dosya_yolu, sep=';', encoding='utf-8-sig', dtype=str)
         df.columns = df.columns.str.strip().str.lower()
 
-        # Sütun isimleri
+
         col_ana = 'ana_hat_no' if 'ana_hat_no' in df.columns else 'hat_no'
         col_alt = 'alt_hat_no'
         col_enlem = 'enlem' if 'enlem' in df.columns else 'y'
@@ -43,11 +43,11 @@ class Command(BaseCommand):
                 hat = hatlar_cache.get(key)
                 if not hat: continue
 
-                # Sıra No Üret
+
                 sira = hat_sira_sayac.get(key, 0)
                 hat_sira_sayac[key] = sira + 1
 
-                # Koordinat Düzelt (37123456 -> 37.123456)
+
                 def fix_coord(val):
                     val = str(val).replace(',', '.')
                     if val.count('.') > 1: val = val.rsplit('.', 1)[0] + val.rsplit('.', 1)[1]
@@ -58,7 +58,7 @@ class Command(BaseCommand):
                 enlem = fix_coord(row[col_enlem])
                 boylam = fix_coord(row[col_boylam])
 
-                # Ters mi yazılmış?
+
                 if (31 < enlem < 35) and (36 < boylam < 39):
                     enlem, boylam = boylam, enlem
 
@@ -77,7 +77,7 @@ class Command(BaseCommand):
         if batch: HatGuzergah.objects.bulk_create(batch)
         self.stdout.write(self.style.SUCCESS(f"\n   -> Toplam {count} rota noktası yüklendi."))
 
-        # 3. DURAKLARI ROTAYA OTURTMA
+
         self.stdout.write("3. Duraklar rotanın üzerine çivileniyor...")
         duzeltilen = 0
         for hat in Hat.objects.all():
@@ -92,7 +92,7 @@ class Command(BaseCommand):
                 if hedef_idx >= len(rota): hedef_idx = len(rota) - 1
 
                 nokta = rota[hedef_idx]
-                # Durak koordinatını güncelle
+
                 d = h_durak.durak
                 d.enlem = nokta.enlem
                 d.boylam = nokta.boylam

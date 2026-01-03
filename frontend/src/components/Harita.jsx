@@ -7,7 +7,7 @@ import { Form, Button, Spinner } from 'react-bootstrap';
 import { Bus, Navigation, Clock, MapPin } from 'lucide-react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
-// --- CSS STİLLERİ (Animasyonlar için) ---
+
 const markerStyle = `
   .user-location-pulse {
     animation: pulse 2s infinite;
@@ -30,7 +30,7 @@ const markerStyle = `
   .stop-marker-pin span { transform: rotate(45deg); font-weight: bold; font-size: 14px; }
 `;
 
-// --- İKON OLUŞTURUCULAR ---
+
 
 // 1. Otobüs İkonu
 const createBusIcon = (isEkSefer) => {
@@ -62,15 +62,15 @@ const createStopIcon = () => {
 };
 
 // 3. Kullanıcı Konum İkonu
-// 3. Kullanıcı Konum İkonu (DÜZELTİLMİŞ HALİ)
+
 const userIcon = L.divIcon({
-    // HATA ÇÖZÜMÜ: İki sınıfı tek string içinde boşlukla birleştirdik
+
     className: 'custom-div-icon user-location-pulse',
     html: `<img src="https://cdn-icons-png.flaticon.com/512/149/149060.png" style="width:100%; height:100%; display:block;" />`,
     iconSize: [35, 35],
     iconAnchor: [17, 17]
 });
-// Harita Kontrolcüsü (Merkez ve Zoom değiştiğinde uçuş animasyonu yapar)
+
 const MapController = ({ centerCoord, zoomLevel }) => {
     const map = useMap();
     useEffect(() => {
@@ -171,12 +171,11 @@ const Harita = () => {
         }
     };
 
-    // Listeden Sefer Tıklama (DÜZELTİLDİ: ARTIK FARKLI KONUMLARA GİDİYOR)
+    // Listeden Sefer Tıklama
     const handleSeferClick = (index) => {
         if(otobusler.length > 0) {
-            // Tıkladığımız satırın sırasına göre (modülo alarak) ilgili otobüsü seçiyoruz.
-            // Örneğin: 1. satır -> 1. otobüs, 2. satır -> 2. otobüs, 3. satır -> 3. otobüs
-            // 4. satır -> tekrar 1. otobüs (döngüsel)
+
+
             const busIndex = index % otobusler.length;
             const targetBus = otobusler[busIndex];
 
@@ -318,13 +317,13 @@ const Harita = () => {
                             const [h, m] = sefer.saat.split(':');
                             const seferZamani = new Date(); seferZamani.setHours(h, m, 0);
                             const farkDk = (now - seferZamani) / 60000;
-                            // Son 60 dk içinde kalkmış seferler "Yolda" kabul edilir
+
                             const isLive = farkDk >= 0 && farkDk <= 60;
 
                             return (
                                 <div
                                     key={idx}
-                                    onClick={() => isLive && handleSeferClick(idx)} // <-- DÜZELTME BURADA: Index gönderiyoruz
+                                    onClick={() => isLive && handleSeferClick(idx)}
                                     className={`p-2 mb-2 rounded border-start border-4 shadow-sm ${
                                         isLive ? 'bg-white border-success' : (isEk ? 'bg-white border-danger' : 'bg-white border-secondary')
                                     }`}

@@ -21,11 +21,11 @@ class Command(BaseCommand):
         df = pd.read_csv(dosya_yolu, sep=';', encoding='utf-8-sig', dtype=str)
         df.columns = df.columns.str.strip().str.lower()
 
-        # Sütun isimlerini belirle
+
         col_ana = 'ana_hat_no' if 'ana_hat_no' in df.columns else 'hat_no'
         col_alt = 'alt_hat_no'
 
-        # 'sira' sütunu var mı? Yoksa biz üreteceğiz, hata vermesin.
+
         col_sira = None
         if 'sira_no' in df.columns:
             col_sira = 'sira_no'
@@ -36,10 +36,10 @@ class Command(BaseCommand):
         col_enlem = 'enlem' if 'enlem' in df.columns else 'y'
         col_boylam = 'boylam' if 'boylam' in df.columns else 'x'
 
-        # Hatları hafızaya al
+
         hatlar_cache = {f"{h.ana_hat_no}-{h.alt_hat_no}": h for h in Hat.objects.all()}
 
-        # Her hat için ayrı sayaç tutacağız (Otomatik sıra no üretmek için)
+
         hat_sira_sayac = {}
 
         batch = []
@@ -60,27 +60,27 @@ class Command(BaseCommand):
                     atlanan += 1
                     continue
 
-                # --- SIRA NUMARASI BELİRLEME ---
+
                 if col_sira and pd.notna(row[col_sira]):
-                    # Dosyada varsa onu kullan
+
                     sira = int(row[col_sira])
                 else:
-                    # Yoksa biz üretelim: Bu hat için sayaç kaçtaysa onu ver
+
                     current_count = hat_sira_sayac.get(key, 0)
                     sira = current_count
                     hat_sira_sayac[key] = current_count + 1
 
-                # --- KOORDİNAT ONARMA ---
+
                 def duzelt(val):
                     val = str(val).replace(',', '.')
-                    # "37.123.456" hatası varsa düzelt
+
                     if val.count('.') > 1:
                         parts = val.split('.')
                         val = parts[0] + '.' + ''.join(parts[1:])
 
                     f_val = float(val)
 
-                    # Sayı çok büyükse (nokta yoksa) küçült
+
                     while f_val > 100:
                         f_val /= 10
                     return f_val
@@ -88,16 +88,16 @@ class Command(BaseCommand):
                 enlem = duzelt(row[col_enlem])
                 boylam = duzelt(row[col_boylam])
 
-                # Koordinat TERS Mİ? (Konya Enlem: 37-38, Boylam: 32-33)
+
                 final_enlem = enlem
                 final_boylam = boylam
 
-                # Eğer enlem 32 civarı ve boylam 37 civarıysa ters çevir
+
                 if (31 < enlem < 35) and (36 < boylam < 39):
                     final_enlem = boylam
                     final_boylam = enlem
 
-                # Güvenlik Sınırı (Konya dışıysa alma)
+
                 if not (36 < final_enlem < 39) or not (31 < final_boylam < 35):
                     continue
 

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const HatYonetimi = () => {
-  // --- STATE ---
+
   const [hatlar, setHatlar] = useState([]);
   const [filteredHatlar, setFilteredHatlar] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -23,13 +23,13 @@ const HatYonetimi = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Modal State
+
   const [showModal, setShowModal] = useState(false);
   const [ekSeferSaat, setEkSeferSaat] = useState('');
   const [ekSeferArac, setEkSeferArac] = useState('');
   const [modalMsg, setModalMsg] = useState(null);
 
-  // 1. Hatları Çek
+
   useEffect(() => {
     axios.get('http://127.0.0.1:8000/api/hatlar/')
       .then(res => {
@@ -40,7 +40,7 @@ const HatYonetimi = () => {
       .catch(err => setError("Hat listesi yüklenemedi."));
   }, []);
 
-  // Arama Filtresi
+
   useEffect(() => {
     const term = searchTerm.toLowerCase();
     const filtered = hatlar.filter(h =>
@@ -50,7 +50,7 @@ const HatYonetimi = () => {
     setFilteredHatlar(filtered);
   }, [searchTerm, hatlar]);
 
-  // 2. Detayları Çek
+
   useEffect(() => {
     if (!selectedHat) return;
     refreshData();
@@ -75,7 +75,7 @@ const HatYonetimi = () => {
     }
   };
 
-  // 3. İşlemler (Ekle/Sil)
+
   const handleEkSeferEkle = async () => {
     if (!ekSeferSaat || !ekSeferArac) {
       setModalMsg({ type: 'warning', text: 'Lütfen tüm alanları doldurun.' });
@@ -101,7 +101,7 @@ const HatYonetimi = () => {
     } catch (err) { alert("Silinemedi."); }
   };
 
-  // İstatistik Hesapla
+
   const stats = {
     toplamSefer: tarife.length,
     ekSefer: tarife.filter(t => t.tip === 'Ek Sefer').length,
@@ -111,7 +111,7 @@ const HatYonetimi = () => {
   return (
     <Container fluid className="py-4 bg-light min-vh-100 font-monospace">
 
-      {/* ÜST PANEL: SEÇİM VE ARAMA */}
+
       <Card className="border-0 shadow-sm mb-4 bg-white">
         <Card.Body className="p-4">
           <Row className="align-items-center g-3">
@@ -155,7 +155,7 @@ const HatYonetimi = () => {
 
       {selectedHat && (
         <>
-          {/* ÖZET İSTATİSTİKLER (Mini Cards) */}
+
           <Row className="g-3 mb-4">
              <Col xs={6} md={3}>
                 <div className="bg-white p-3 rounded shadow-sm border-start border-4 border-primary d-flex justify-content-between align-items-center">
@@ -187,7 +187,7 @@ const HatYonetimi = () => {
           </Row>
 
           <Row className="g-4">
-            {/* SOL: DURAK ROTA (TIMELINE GÖRÜNÜMÜ) */}
+
             <Col lg={4}>
               <Card className="border-0 shadow-sm h-100">
                 <Card.Header className="bg-white py-3 border-bottom fw-bold text-primary">
@@ -214,13 +214,13 @@ const HatYonetimi = () => {
                                  </div>
                               </div>
 
-                              {/* Bilgi - DÜZELTME BURADA */}
+
                               <div className="bg-light p-2 rounded w-100 border-start border-2 border-primary-subtle">
                                  <div className="fw-bold text-dark">{d.durak?.durak_adi || 'Bilinmeyen Durak'}</div>
                                  <div className="d-flex justify-content-between small text-muted">
                                     <span>No: {d.durak?.durak_no}</span>
                                     <span>
-                                        {/* toFixed hatasını önlemek için Number() dönüşümü yapıldı */}
+
                                         {d.durak?.enlem ? Number(d.durak.enlem).toFixed(4) : '-'},
                                         {d.durak?.boylam ? Number(d.durak.boylam).toFixed(4) : '-'}
                                     </span>
@@ -234,7 +234,7 @@ const HatYonetimi = () => {
               </Card>
             </Col>
 
-            {/* SAĞ: SEFER YÖNETİMİ (TABLO) */}
+
             <Col lg={8}>
               <Card className="border-0 shadow-sm h-100">
                 <Card.Header className="bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
