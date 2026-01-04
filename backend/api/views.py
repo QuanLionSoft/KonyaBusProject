@@ -68,10 +68,10 @@ def parse_time_column(val):
         s = str(val).strip()
         if ':' in s:
             return int(s.split(':')[0])
-        elif '.' in s:  # 06.30 veya 6.0 formatı için
+        elif '.' in s:  
             return int(s.split('.')[0])
         else:
-            return int(float(s))  # "6" veya "6.0" gelebilir
+            return int(float(s))  
     except:
         return -1
 
@@ -113,7 +113,7 @@ def get_elkart_data(hat_no):
                 saat_col = next((c for c in chunk.columns if 'SAAT' in c), None)
 
                 if hat_col and yolcu_col and saat_col:
-                    # Hat numarasını stringe çevirip karşılaştır
+                   
                     chunk[hat_col] = chunk[hat_col].astype(str).str.strip()
                     filtered = chunk[chunk[hat_col] == hat_no_str].copy()
 
@@ -388,7 +388,7 @@ class CapacityAnalysisView(APIView):
                 gunluk_sefer = sefer_sayilari.get(saat, 0)
                 gunluk_yolcu = talep_ort.get(saat, 0)
 
-                # Hesaplamalar
+               
                 toplam_sefer = int(gunluk_sefer * carpan)
                 toplam_yolcu = int(round(gunluk_yolcu * carpan))
                 kapasite = toplam_sefer * OTOBUS_KAPASITESI
@@ -495,7 +495,7 @@ def aktif_otobusler(request):
         if not rota_noktalari: return Response([])
 
         toplam_nokta_sayisi = len(rota_noktalari)
-        # Sefer süresini ortalama 60 dk olarak varsayıyoruz (Dilerseniz bu değeri düşürebilirsiniz)
+       
         SEFER_SURESI_DK = 60
         SEFER_SURESI_SN = SEFER_SURESI_DK * 60
         simdi = datetime.now()
@@ -510,15 +510,15 @@ def aktif_otobusler(request):
                 df['hat_str'] = df[hat_col].astype(str).str.split('.').str[0].str.strip()
                 df_hat = df[df['hat_str'] == hat_no].copy()
 
-                # --- GÜN FİLTRESİ (DÜZELTME BURADA YAPILDI) ---
-                bugun_gun = simdi.weekday()  # 0: Pazartesi ... 6: Pazar
+                
+                bugun_gun = simdi.weekday()  
                 gun_kodu = 'P' if bugun_gun == 6 else ('C' if bugun_gun == 5 else 'H')
 
                 zaman_col = next((c for c in df.columns if 'ZAMAN' in c or 'GUN' in c), None)
                 if zaman_col:
-                    # Sadece bugünün kodunu içeren (H, C veya P) satırları al
+                   
                     df_hat = df_hat[df_hat[zaman_col].astype(str).str.upper().str.contains(gun_kodu, na=False)]
-                # -----------------------------------------------
+                
 
                 saat_col = next((c for c in df_hat.columns if 'SAAT' in c), None)
                 if saat_col:
@@ -533,17 +533,17 @@ def aktif_otobusler(request):
                         except:
                             pass
 
-        # Ek Seferleri Ekle
+        
         ek_seferler = EkSefer.objects.filter(hat=hat_obj, aktif=True)
         for ek in ek_seferler:
             kalkis = datetime.combine(simdi.date(), ek.kalkis_saati)
             sefer_listesi.append({'zaman': kalkis, 'tip': 'ek', 'kod': f"EK-{ek.arac_no}", 'arac': ek.arac_no})
 
-        # Konum Hesaplama ve Filtreleme
+       
         for i, sefer in enumerate(sefer_listesi):
             gecen_sn = (simdi - sefer['zaman']).total_seconds()
 
-            # Sadece şu an yolda olması gereken (0 ile 60 dk arası geçmiş) araçları al
+           
             if 0 <= gecen_sn <= SEFER_SURESI_SN:
                 oran = gecen_sn / SEFER_SURESI_SN
 
